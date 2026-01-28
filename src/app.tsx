@@ -6,7 +6,7 @@ const App: Component<{ children: Element }> = (props) => {
 
   return (
     <>
-      <nav class="bg-gray-200 text-gray-900 px-4">
+      <nav class="bg-gray-200 text-gray-900 px-4 h-16">
         <ul class="flex items-center">
           <li class="py-2 px-4">
             <A href="/" class="no-underline hover:underline">
@@ -36,7 +36,7 @@ const App: Component<{ children: Element }> = (props) => {
         </ul>
       </nav>
 
-      <main>
+      <main class="h-[calc(100vh-4rem)] w-screen">
         <Suspense>{props.children}</Suspense>
       </main>
     </>
