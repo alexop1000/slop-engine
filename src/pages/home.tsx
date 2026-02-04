@@ -7,10 +7,16 @@ import {
     Color3,
     StandardMaterial,
     GizmoManager,
+    Vector3,
+    HavokPlugin,
+    PhysicsAggregate,
+    PhysicsShapeType,
 } from 'babylonjs'
+import HavokPhysics, { HavokPhysicsWithBindings } from '@babylonjs/havok'
+
 import Resizable from 'corvu/resizable'
 import { makePersisted } from '@solid-primitives/storage'
-import { minus, plus } from 'solid-heroicons/solid'
+import { minus, pause, play, plus, stop } from 'solid-heroicons/solid'
 import {
     arrowPath,
     arrowsPointingOut,
@@ -26,6 +32,11 @@ import {
     ScenePanel,
     PropertiesPanel,
 } from '../components/panels'
+import { Button, IconButton, Tooltip } from '../components/ui'
+
+async function getInitializedHavok() {
+    return await HavokPhysics()
+}
 
 export default function Home() {
     const [sizes, setSizes] = makePersisted(createSignal<number[]>([]), {
@@ -44,7 +55,9 @@ export default function Home() {
         }
     )
 
+    const [isPlaying, setIsPlaying] = createSignal(false)
     const [box, setBox] = createSignal<Mesh>()
+    const [box2, setBox2] = createSignal<Mesh>()
     const [scale, setScale] = createSignal(1)
     const [scene, setScene] = createSignal<Scene>()
     const [selectedNode, setSelectedNode] = createSignal<Mesh>()
@@ -66,16 +79,44 @@ export default function Home() {
         gizmoManager()?.attachToMesh(selectedNode() as Mesh)
     }
 
-    onMount(() => {
+    onMount(async () => {
         const canvas = document.getElementById('canvas') as HTMLCanvasElement
         const engine = new Engine(canvas, true)
         const scene = new Scene(engine)
         scene.createDefaultCamera(true, true, true)
         scene.createDefaultLight(true)
+
+        scene.activeCamera!.position = new Vector3(0, 5, -20)
+
+        const initializedHavok = await getInitializedHavok()
+        console.log(initializedHavok)
+        const physicsPlugin = new HavokPlugin(true, initializedHavok)
+        scene.enablePhysics(new Vector3(0, -9.81, 0), physicsPlugin)
+
+        const ground = MeshBuilder.CreateGround(
+            'ground1',
+            { width: 100, height: 100, subdivisions: 2 },
+            scene
+        )
+        ground.position.y = -1
+        const groundMaterial = new StandardMaterial('ground', scene)
+        groundMaterial.diffuseColor = new Color3(0.5, 0.5, 0.5)
+        groundMaterial.specularColor = new Color3(1, 1, 1)
+        groundMaterial.specularPower = 1111
+        groundMaterial.roughness = 0.1
+        ground.material = groundMaterial
+
+        const groundAggregate = new PhysicsAggregate(
+            ground,
+            PhysicsShapeType.BOX,
+            { mass: 0 },
+            scene
+        )
+
         const box = MeshBuilder.CreateBox('box', { size: 2 }, scene)
+        box.position.y = 3
         const box2 = MeshBuilder.CreateBox('box', { size: 2 }, scene)
-        box.position.y = 1
-        box2.position.y = 4
+        box2.position.y = 6
         const redMaterial = new StandardMaterial('box', scene)
         redMaterial.diffuseColor = new Color3(1, 0, 0)
         redMaterial.specularColor = new Color3(1, 1, 1)
@@ -150,6 +191,7 @@ export default function Home() {
         })
         setGizmoManager(gizmoManager)
         setBox(box)
+        setBox2(box2)
         setScene(scene)
         setEngine(engine)
         engine.runRenderLoop(() => scene.render())
@@ -171,56 +213,113 @@ export default function Home() {
             {/* Topbar */}
             <div class="flex items-center justify-between mb-2 bg-gray-800 p-2 rounded-md">
                 <h1 class="text-lg font-bold">Scene Editor</h1>
-                <div class="flex items-center space-x-2">
-                    <button
-                        onClick={() => setSelectedGizmo('rotation')}
-                        class={
-                            selectedGizmo() === 'rotation'
-                                ? 'bg-gray-700 rounded-md p-1'
-                                : 'p-1'
-                        }
+                <div class="flex items-center space-x-1">
+                    <Button
+                        variant={isPlaying() ? 'primary' : 'secondary'}
+                        size="md"
+                        onClick={() => {
+                            if (!isPlaying()) {
+                                const boxAggregate = new PhysicsAggregate(
+                                    box()!,
+                                    PhysicsShapeType.BOX,
+                                    { mass: 1, restitution: 0.75 },
+                                    scene()
+                                )
+                                const boxAggregate2 = new PhysicsAggregate(
+                                    box2()!,
+                                    PhysicsShapeType.BOX,
+                                    { mass: 1, restitution: 0.75 },
+                                    scene()
+                                )
+                            }
+                            setIsPlaying(!isPlaying())
+                        }}
                     >
-                        <Icon path={arrowPath} class="size-5" />
-                    </button>
-                    <button
-                        onClick={() => setSelectedGizmo('scale')}
-                        class={
-                            selectedGizmo() === 'scale'
-                                ? 'bg-gray-700 rounded-md p-1'
-                                : 'p-1'
-                        }
-                    >
-                        <Icon path={arrowsPointingOut} class="size-5" />
-                    </button>
-                    <button
-                        onClick={() => setSelectedGizmo('position')}
-                        class={
-                            selectedGizmo() === 'position'
-                                ? 'bg-gray-700 rounded-md p-1'
-                                : 'p-1'
-                        }
-                    >
-                        <Icon path={arrowsRightLeft} class="size-5" />
-                    </button>
-                    <button
-                        onClick={() => setSelectedGizmo('boundingBox')}
-                        class={
-                            selectedGizmo() === 'boundingBox'
-                                ? 'bg-gray-700 rounded-md p-1'
-                                : 'p-1'
-                        }
-                    >
-                        <Icon path={cubeTransparent} class="size-5" />
-                    </button>
+                        <Icon path={isPlaying() ? stop : play} class="size-5" />
+                        <span class="ml-2">
+                            {isPlaying() ? 'Stop' : 'Play'}
+                        </span>
+                    </Button>
                 </div>
 
-                <div class="flex items-center space-x-2">
-                    <button>
-                        <Icon path={plus} class="size-4" />
-                    </button>
-                    <button>
-                        <Icon path={minus} class="size-4" />
-                    </button>
+                <div class="flex items-center space-x-1">
+                    <Tooltip content="Rotate" position="bottom">
+                        <IconButton
+                            label="Rotate"
+                            variant={
+                                selectedGizmo() === 'rotation'
+                                    ? 'primary'
+                                    : 'ghost'
+                            }
+                            size="sm"
+                            onClick={() => setSelectedGizmo('rotation')}
+                        >
+                            <Icon path={arrowPath} class="size-5" />
+                        </IconButton>
+                    </Tooltip>
+                    <Tooltip content="Scale" position="bottom">
+                        <IconButton
+                            label="Scale"
+                            variant={
+                                selectedGizmo() === 'scale'
+                                    ? 'primary'
+                                    : 'ghost'
+                            }
+                            size="sm"
+                            onClick={() => setSelectedGizmo('scale')}
+                        >
+                            <Icon path={arrowsPointingOut} class="size-5" />
+                        </IconButton>
+                    </Tooltip>
+                    <Tooltip content="Move" position="bottom">
+                        <IconButton
+                            label="Move"
+                            variant={
+                                selectedGizmo() === 'position'
+                                    ? 'primary'
+                                    : 'ghost'
+                            }
+                            size="sm"
+                            onClick={() => setSelectedGizmo('position')}
+                        >
+                            <Icon path={arrowsRightLeft} class="size-5" />
+                        </IconButton>
+                    </Tooltip>
+                    <Tooltip content="Bounding Box" position="bottom">
+                        <IconButton
+                            label="Bounding Box"
+                            variant={
+                                selectedGizmo() === 'boundingBox'
+                                    ? 'primary'
+                                    : 'ghost'
+                            }
+                            size="sm"
+                            onClick={() => setSelectedGizmo('boundingBox')}
+                        >
+                            <Icon path={cubeTransparent} class="size-5" />
+                        </IconButton>
+                    </Tooltip>
+                </div>
+
+                <div class="flex items-center space-x-1">
+                    <Tooltip content="Add Object" position="bottom">
+                        <IconButton
+                            label="Add Object"
+                            variant="ghost"
+                            size="sm"
+                        >
+                            <Icon path={plus} class="size-4" />
+                        </IconButton>
+                    </Tooltip>
+                    <Tooltip content="Remove Object" position="bottom">
+                        <IconButton
+                            label="Remove Object"
+                            variant="ghost"
+                            size="sm"
+                        >
+                            <Icon path={minus} class="size-4" />
+                        </IconButton>
+                    </Tooltip>
                 </div>
             </div>
             <Resizable
