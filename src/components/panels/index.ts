@@ -1,0 +1,5 @@
+export { default as AIPanel } from './AIPanel'
+export { default as ViewportPanel } from './ViewportPanel'
+export { default as ConsolePanel } from './ConsolePanel'
+export { default as ScenePanel } from './ScenePanel'
+export { default as PropertiesPanel } from './PropertiesPanel'

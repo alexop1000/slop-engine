@@ -3,21 +3,22 @@ import {
     Engine,
     Scene,
     MeshBuilder,
-    HemisphericLight,
     Mesh,
-    Vector3,
     Color3,
     StandardMaterial,
-    Space,
-    PhysicsEngine,
-    Ray,
 } from 'babylonjs'
-import Panel from '../components/Panel'
 import Resizable from 'corvu/resizable'
 import { makePersisted } from '@solid-primitives/storage'
 import { minus, plus } from 'solid-heroicons/solid'
 import { Icon } from 'solid-heroicons'
 import Handle from '../components/Handle'
+import {
+    AIPanel,
+    ViewportPanel,
+    ConsolePanel,
+    ScenePanel,
+    PropertiesPanel,
+} from '../components/panels'
 
 export default function Home() {
     const [sizes, setSizes] = makePersisted(createSignal<number[]>([]), {
@@ -121,13 +122,7 @@ export default function Home() {
                     minSize={0.05}
                     class="bg-gray-800 p-2 rounded-md"
                 >
-                    <h1>AI Window</h1>
-                    <p>
-                        This is the AI window. You can use it to chat with the
-                        AI.
-                    </p>
-                    <input type="text" placeholder="Ask the AI a question" />
-                    <button>Ask</button>
+                    <AIPanel />
                 </Resizable.Panel>
                 <Resizable.Handle
                     class="group basis-3 px-1"
@@ -156,12 +151,7 @@ export default function Home() {
                             minSize={0.1}
                             class="bg-gray-800 p-2 rounded-md h-full overflow-hidden"
                         >
-                            <div class="relative size-full overflow-hidden">
-                                <canvas
-                                    id="canvas"
-                                    class="absolute inset-0 size-full"
-                                />
-                            </div>
+                            <ViewportPanel />
                         </Resizable.Panel>
                         <Resizable.Handle class="group basis-3 py-1">
                             <Handle />
@@ -171,11 +161,7 @@ export default function Home() {
                             minSize={0.05}
                             class="bg-gray-800 p-2 rounded-md h-full overflow-hidden"
                         >
-                            <h1> Console Window </h1>
-                            <p>
-                                This is the console window. You can use it to
-                                view the console.
-                            </p>
+                            <ConsolePanel />
                         </Resizable.Panel>
                     </Resizable>
                 </Resizable.Panel>
@@ -205,12 +191,7 @@ export default function Home() {
                             minSize={0.05}
                             class="bg-gray-800 p-2 rounded-md size-full"
                         >
-                            <h1>Scene</h1>
-                            <p>
-                                This is the scene window. You can use it to view
-                                the scene.
-                            </p>
-                            <Icon path={plus} class="size-4" />
+                            <ScenePanel />
                         </Resizable.Panel>
                         <Resizable.Handle class="group basis-3 py-1">
                             <Handle />
@@ -220,11 +201,7 @@ export default function Home() {
                             minSize={0.05}
                             class="bg-gray-800 p-2 rounded-md"
                         >
-                            <h1>Properties</h1>
-                            <p>
-                                This is the properties window. You can use it to
-                                change the properties of the selected node.
-                            </p>
+                            <PropertiesPanel />
                         </Resizable.Panel>
                     </Resizable>
                 </Resizable.Panel>
