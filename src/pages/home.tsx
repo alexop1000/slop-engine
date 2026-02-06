@@ -11,6 +11,8 @@ import {
     HavokPlugin,
     PhysicsAggregate,
     PhysicsShapeType,
+    UniversalCamera,
+    PickingInfo,
 } from 'babylonjs'
 import HavokPhysics, { HavokPhysicsWithBindings } from '@babylonjs/havok'
 
@@ -62,11 +64,26 @@ export default function Home() {
     const [scene, setScene] = createSignal<Scene>()
     const [selectedNode, setSelectedNode] = createSignal<Mesh>()
     const [engine, setEngine] = createSignal<Engine>()
+    const [nodeTick, setNodeTick] = createSignal(0)
 
     const [gizmoManager, setGizmoManager] = createSignal<GizmoManager>()
     const [selectedGizmo, _setSelectedGizmo] = createSignal<
         'position' | 'rotation' | 'scale' | 'boundingBox'
     >('position')
+
+    let _isDraggingGizmo = false
+    function hookGizmoDrag() {
+        const gm = gizmoManager()
+        if (!gm) return
+        for (const g of [gm.gizmos.positionGizmo, gm.gizmos.rotationGizmo, gm.gizmos.scaleGizmo, gm.gizmos.boundingBoxGizmo]) {
+            if (g && !(g as any).__dragHooked) {
+                (g as any).__dragHooked = true
+                const gizmo = g as any
+                gizmo.onDragStartObservable?.add(() => { _isDraggingGizmo = true })
+                gizmo.onDragEndObservable?.add(() => { _isDraggingGizmo = false; setNodeTick(t => t + 1) })
+            }
+        }
+    }
 
     const setSelectedGizmo = (
         gizmo: 'position' | 'rotation' | 'scale' | 'boundingBox'
@@ -77,16 +94,57 @@ export default function Home() {
         gizmoManager()!.scaleGizmoEnabled = gizmo === 'scale'
         gizmoManager()!.boundingBoxGizmoEnabled = gizmo === 'boundingBox'
         gizmoManager()?.attachToMesh(selectedNode() as Mesh)
+        hookGizmoDrag()
     }
 
     onMount(async () => {
         const canvas = document.getElementById('canvas') as HTMLCanvasElement
         const engine = new Engine(canvas, true)
         const scene = new Scene(engine)
-        scene.createDefaultCamera(true, true, true)
-        scene.createDefaultLight(true)
 
-        scene.activeCamera!.position = new Vector3(0, 5, -20)
+        // Create UniversalCamera for WASD flying navigation
+        const camera = new UniversalCamera(
+            'camera',
+            new Vector3(0, 5, -20),
+            scene
+        )
+        camera.attachControl(canvas, true)
+
+        // Set camera movement speed
+        const normalSpeed = 0.5
+        const fastSpeed = 1.5
+        camera.speed = normalSpeed
+        camera.angularSensibility = 2000
+
+        // Enable WASD keys
+        camera.keysUp.push(87) // W
+        camera.keysDown.push(83) // S
+        camera.keysLeft.push(65) // A
+        camera.keysRight.push(68) // D
+
+        // Enable flying mode (no gravity)
+        camera.applyGravity = false
+
+        // Set the camera as active
+        scene.activeCamera = camera
+
+        // Add shift key speed boost
+        scene.onKeyboardObservable.add((kbInfo) => {
+            if (kbInfo.type === 1) {
+                // Key down
+                if (kbInfo.event.key === 'Shift') {
+                    camera.speed = fastSpeed
+                }
+                // If you press E make camera go up, Q go down
+            } else if (kbInfo.type === 2) {
+                // Key up
+                if (kbInfo.event.key === 'Shift') {
+                    camera.speed = normalSpeed
+                }
+            }
+        })
+
+        scene.createDefaultLight(true)
 
         const initializedHavok = await getInitializedHavok()
         console.log(initializedHavok)
@@ -113,22 +171,30 @@ export default function Home() {
             scene
         )
 
+        const createRedMaterial = () => {
+            const name = `red-material-${Math.random()
+                .toString(36)
+                .slice(2, 9)}`
+            const redMaterial = new StandardMaterial(name, scene)
+            redMaterial.diffuseColor = new Color3(1, 0, 0)
+            redMaterial.specularColor = new Color3(1, 1, 1)
+            redMaterial.specularPower = 100
+            return redMaterial
+        }
+
         const box = MeshBuilder.CreateBox('box', { size: 2 }, scene)
         box.position.y = 3
         const box2 = MeshBuilder.CreateBox('box', { size: 2 }, scene)
         box2.position.y = 6
-        const redMaterial = new StandardMaterial('box', scene)
-        redMaterial.diffuseColor = new Color3(1, 0, 0)
-        redMaterial.specularColor = new Color3(1, 1, 1)
-        redMaterial.specularPower = 100
-        box.material = redMaterial
-        box2.material = redMaterial
+        box.material = createRedMaterial()
+        box2.material = createRedMaterial()
         const gizmoManager = new GizmoManager(scene)
         gizmoManager.positionGizmoEnabled = false
         gizmoManager.rotationGizmoEnabled = false
         gizmoManager.scaleGizmoEnabled = false
         gizmoManager.enableAutoPicking = false
-        let lastResult: any = null
+        gizmoManager.boundingBoxGizmoEnabled = false
+        let lastResult: PickingInfo | null = null
         let pointerDownPos: { x: number; y: number } | null = null
         let hasDragged = false
         const DRAG_THRESHOLD = 5
@@ -151,19 +217,16 @@ export default function Home() {
                 const result = scene.pick(
                     e.offsetX,
                     e.offsetY,
-                    (node) => node.name === 'box'
+                    (node) => node instanceof Mesh
                 )
                 if (result.hit) {
                     if (lastResult?.pickedMesh) {
-                        lastResult.pickedMesh.material = redMaterial
+                        lastResult.pickedMesh.renderOutline = false
                     }
                     lastResult = result
                     if (result.pickedMesh) {
                         setSelectedNode(result.pickedMesh as Mesh)
-                        result.pickedMesh.material = new StandardMaterial(
-                            'selected',
-                            scene
-                        )
+                        result.pickedMesh.renderOutline = true
                         if (selectedGizmo() === 'position') {
                             gizmoManager.positionGizmoEnabled = true
                         } else if (selectedGizmo() === 'rotation') {
@@ -174,11 +237,12 @@ export default function Home() {
                             gizmoManager.boundingBoxGizmoEnabled = true
                         }
                         gizmoManager.attachToMesh(result.pickedMesh as Mesh)
+                        hookGizmoDrag()
                     }
                 } else {
                     setSelectedNode(undefined)
                     if (lastResult?.pickedMesh) {
-                        lastResult.pickedMesh.material = redMaterial
+                        lastResult.pickedMesh.renderOutline = false
                     }
                     gizmoManager.positionGizmoEnabled = false
                     gizmoManager.rotationGizmoEnabled = false
@@ -190,6 +254,9 @@ export default function Home() {
             hasDragged = false
         })
         setGizmoManager(gizmoManager)
+        scene.onBeforeRenderObservable.add(() => {
+            if (_isDraggingGizmo) setNodeTick(t => t + 1)
+        })
         setBox(box)
         setBox2(box2)
         setScene(scene)
@@ -412,9 +479,9 @@ export default function Home() {
                         <Resizable.Panel
                             initialSize={0.5}
                             minSize={0.05}
-                            class="bg-gray-800 p-2 rounded-md"
+                            class="bg-gray-800 p-2 rounded-md overflow-y-auto"
                         >
-                            <PropertiesPanel />
+                            <PropertiesPanel node={() => { nodeTick(); return selectedNode() }} />
                         </Resizable.Panel>
                     </Resizable>
                 </Resizable.Panel>

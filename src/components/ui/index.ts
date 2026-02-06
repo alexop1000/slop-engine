@@ -50,6 +50,15 @@ export type {
 export { Tooltip } from './Tooltip'
 export type { TooltipProps, TooltipPosition } from './Tooltip'
 
+export { Collapsible } from './Collapsible'
+export type { CollapsibleProps } from './Collapsible'
+
+export { Color3Input } from './Color3Input'
+export type { Color3InputProps } from './Color3Input'
+
+export { Vector3Input } from './Vector3Input'
+export type { Vector3InputProps } from './Vector3Input'
+
 export { Divider } from './Divider'
 export type { DividerProps } from './Divider'
 
