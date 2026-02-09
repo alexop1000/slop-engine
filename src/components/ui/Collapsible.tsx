@@ -29,7 +29,9 @@ export function Collapsible(props: CollapsibleProps) {
             >
                 <span>{local.title}</span>
                 <svg
-                    class={`w-4 h-4 transition-transform duration-200 ${open() ? 'rotate-180' : ''}`}
+                    class={`w-4 h-4 transition-transform duration-200 ${
+                        open() ? 'rotate-180' : ''
+                    }`}
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
                     viewBox="0 0 24 24"
@@ -44,7 +46,9 @@ export function Collapsible(props: CollapsibleProps) {
                 </svg>
             </button>
             <div
-                class={`overflow-hidden transition-all duration-200 ${open() ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}
+                class={`overflow-hidden transition-all duration-200 ${
+                    open() ? 'h-full opacity-100' : 'max-h-0 opacity-0'
+                }`}
             >
                 {local.children}
             </div>

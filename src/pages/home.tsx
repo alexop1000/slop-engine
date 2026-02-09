@@ -307,8 +307,7 @@ export default function Home() {
     return (
         <section class="bg-gray-900 text-gray-100 size-full p-2 flex flex-col">
             {/* Topbar */}
-            <div class="flex items-center justify-between mb-2 bg-gray-800 p-2 rounded-md">
-                <h1 class="text-lg font-bold">Scene Editor</h1>
+            <div class="flex items-center mb-2 bg-gray-800 p-2 rounded-md gap-5">
                 <div class="flex items-center space-x-1">
                     <Button
                         variant={isPlaying() ? 'primary' : 'secondary'}
@@ -393,27 +392,6 @@ export default function Home() {
                             onClick={() => setSelectedGizmo('boundingBox')}
                         >
                             <Icon path={cubeTransparent} class="size-5" />
-                        </IconButton>
-                    </Tooltip>
-                </div>
-
-                <div class="flex items-center space-x-1">
-                    <Tooltip content="Add Object" position="bottom">
-                        <IconButton
-                            label="Add Object"
-                            variant="ghost"
-                            size="sm"
-                        >
-                            <Icon path={plus} class="size-4" />
-                        </IconButton>
-                    </Tooltip>
-                    <Tooltip content="Remove Object" position="bottom">
-                        <IconButton
-                            label="Remove Object"
-                            variant="ghost"
-                            size="sm"
-                        >
-                            <Icon path={minus} class="size-4" />
                         </IconButton>
                     </Tooltip>
                 </div>

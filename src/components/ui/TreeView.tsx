@@ -20,11 +20,19 @@ export interface TreeMoveEvent<T = unknown> {
     position: DropPosition
 }
 
+export interface TreeContextMenuEvent<T = unknown> {
+    id: string
+    data: T | undefined
+    x: number
+    y: number
+}
+
 export interface TreeViewProps<T = unknown> {
     items: TreeNode<T>[]
     selectedId?: Accessor<string | undefined>
     onSelect?: (id: string, data: T | undefined) => void
     onMove?: (event: TreeMoveEvent<T>) => void
+    onContextMenu?: (event: TreeContextMenuEvent<T>) => void
     defaultExpanded?: string[]
     class?: string
 }
@@ -53,6 +61,7 @@ function TreeItem<T>(props: Readonly<{
     depth: number
     selectedId: Accessor<string | undefined> | undefined
     onSelect: ((id: string, data: T | undefined) => void) | undefined
+    onContextMenu: ((event: TreeContextMenuEvent<T>) => void) | undefined
     expanded: Accessor<Set<string>>
     setExpanded: Setter<Set<string>>
     dragState: Accessor<DragState<T> | null>
@@ -79,6 +88,17 @@ function TreeItem<T>(props: Readonly<{
 
     const handleSelect = () => {
         props.onSelect?.(props.node.id, props.node.data)
+    }
+
+    const handleContextMenu = (e: MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        props.onContextMenu?.({
+            id: props.node.id,
+            data: props.node.data,
+            x: e.clientX,
+            y: e.clientY,
+        })
     }
 
     const handleDragStart = (e: DragEvent) => {
@@ -170,6 +190,7 @@ function TreeItem<T>(props: Readonly<{
                 }`}
                 style={{ "padding-left": `${props.depth * 1.25 + 0.25}rem` }}
                 onClick={handleSelect}
+                onContextMenu={handleContextMenu}
                 draggable={true}
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
@@ -209,6 +230,7 @@ function TreeItem<T>(props: Readonly<{
                                 depth={props.depth + 1}
                                 selectedId={props.selectedId}
                                 onSelect={props.onSelect}
+                                onContextMenu={props.onContextMenu}
                                 expanded={props.expanded}
                                 setExpanded={props.setExpanded}
                                 dragState={props.dragState}
@@ -244,7 +266,19 @@ export function TreeView<T = unknown>(props: TreeViewProps<T>) {
     const [dropTarget, setDropTarget] = createSignal<DropTarget | null>(null)
 
     return (
-        <div role="tree" class={props.class ?? ''}>
+        <div
+            role="tree"
+            class={props.class ?? ''}
+            onContextMenu={(e) => {
+                e.preventDefault()
+                props.onContextMenu?.({
+                    id: '',
+                    data: undefined,
+                    x: e.clientX,
+                    y: e.clientY,
+                })
+            }}
+        >
             <For each={props.items}>
                 {(item) => (
                     <TreeItem
@@ -252,6 +286,7 @@ export function TreeView<T = unknown>(props: TreeViewProps<T>) {
                         depth={0}
                         selectedId={props.selectedId}
                         onSelect={props.onSelect}
+                        onContextMenu={props.onContextMenu}
                         expanded={expanded}
                         setExpanded={setExpanded}
                         dragState={dragState}

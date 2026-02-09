@@ -70,4 +70,12 @@ export type {
 } from './IconButton'
 
 export { TreeView } from './TreeView'
-export type { TreeViewProps, TreeNode, TreeMoveEvent } from './TreeView'
+export type {
+    TreeViewProps,
+    TreeNode,
+    TreeMoveEvent,
+    TreeContextMenuEvent,
+} from './TreeView'
+
+export { ContextMenu } from './ContextMenu'
+export type { ContextMenuProps, ContextMenuItem } from './ContextMenu'

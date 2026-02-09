@@ -23,7 +23,9 @@ const transformSections: {
     { title: 'Scale', get: (n) => n.scaling },
 ]
 
-function TransformProperties(props: Readonly<{ node: () => TransformNode | undefined }>) {
+function TransformProperties(
+    props: Readonly<{ node: () => TransformNode | undefined }>
+) {
     return (
         <For each={transformSections}>
             {(section) => (
@@ -45,12 +47,13 @@ function TransformProperties(props: Readonly<{ node: () => TransformNode | undef
 }
 
 function MaterialProperties(props: Readonly<{ node: () => Mesh | undefined }>) {
-    const material = () => props.node()?.material as StandardMaterial | undefined
+    const material = () =>
+        props.node()?.material as StandardMaterial | undefined
 
     return (
         <Show when={material()}>
             <Collapsible title="Material">
-                <div class="flex flex-col gap-2">
+                <div class="flex flex-col gap-2 pb-2">
                     <Color3Input
                         label="Diffuse"
                         value={() => material()?.diffuseColor}
@@ -159,7 +162,7 @@ export default function PropertiesPanel(
 
     return (
         <>
-            <h1>Properties</h1>
+            <h2 class="text-sm font-semibold text-gray-200 mb-2">Properties</h2>
             <Switch>
                 <Match when={props.node() instanceof Mesh}>
                     <div class="flex flex-col gap-1">
@@ -194,7 +197,8 @@ export default function PropertiesPanel(
                                     onChange={(e) => {
                                         const m = meshNode()
                                         if (m)
-                                            m.isVisible = e.currentTarget.checked
+                                            m.isVisible =
+                                                e.currentTarget.checked
                                     }}
                                 />
                                 <Checkbox
@@ -253,6 +257,16 @@ export default function PropertiesPanel(
                                 props.node()!.name = e.currentTarget.value
                             }}
                         />
+                        <Collapsible title="Transform">
+                            <Vector3Input
+                                value={() => lightNode()?.position}
+                                onChange={(axis, value) => {
+                                    const l = lightNode()
+                                    if (l) l.position[axis] = value
+                                }}
+                            />
+                        </Collapsible>
+
                         <Collapsible title="Light">
                             <div class="flex flex-col gap-2">
                                 <Input
