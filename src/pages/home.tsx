@@ -1,4 +1,4 @@
-import { createSignal, onMount } from 'solid-js'
+import { createSignal, createEffect, onMount, untrack } from 'solid-js'
 import {
     Engine,
     Scene,
@@ -8,12 +8,12 @@ import {
     Color3,
     StandardMaterial,
     GizmoManager,
+    UtilityLayerRenderer,
     Vector3,
     HavokPlugin,
     PhysicsAggregate,
     PhysicsShapeType,
     UniversalCamera,
-    PickingInfo,
 } from 'babylonjs'
 import HavokPhysics, { HavokPhysicsWithBindings } from '@babylonjs/havok'
 
@@ -109,6 +109,41 @@ export default function Home() {
         )
         hookGizmoDrag()
     }
+
+    // Reactively sync gizmo + outline whenever selectedNode changes
+    let _lastOutlinedMesh: Mesh | null = null
+    createEffect(() => {
+        const node = selectedNode()
+        const gm = gizmoManager()
+
+        // Remove previous outline
+        if (_lastOutlinedMesh && _lastOutlinedMesh !== node) {
+            _lastOutlinedMesh.renderOutline = false
+        }
+        _lastOutlinedMesh = null
+
+        if (node instanceof Mesh) {
+            node.renderOutline = true
+            node.outlineColor = new Color3(0, 0, 0)
+            node.outlineWidth = 0.05
+            _lastOutlinedMesh = node
+
+            if (gm) {
+                const gizmo = untrack(selectedGizmo)
+                gm.positionGizmoEnabled = gizmo === 'position'
+                gm.rotationGizmoEnabled = gizmo === 'rotation'
+                gm.scaleGizmoEnabled = gizmo === 'scale'
+                gm.boundingBoxGizmoEnabled = gizmo === 'boundingBox'
+                gm.attachToMesh(node)
+                hookGizmoDrag()
+            }
+        } else if (gm) {
+            gm.positionGizmoEnabled = false
+            gm.rotationGizmoEnabled = false
+            gm.scaleGizmoEnabled = false
+            gm.boundingBoxGizmoEnabled = false
+        }
+    })
 
     onMount(async () => {
         const canvas = document.getElementById('canvas') as HTMLCanvasElement
@@ -217,13 +252,13 @@ export default function Home() {
         childBox.parent = box2
         childBox.position.y = 2
         childBox.material = createGreenMaterial()
-        const gizmoManager = new GizmoManager(scene)
+        const utilityLayer = new UtilityLayerRenderer(scene)
+        const gizmoManager = new GizmoManager(scene, undefined, utilityLayer)
         gizmoManager.positionGizmoEnabled = false
         gizmoManager.rotationGizmoEnabled = false
         gizmoManager.scaleGizmoEnabled = false
         gizmoManager.enableAutoPicking = false
         gizmoManager.boundingBoxGizmoEnabled = false
-        let lastResult: PickingInfo | null = null
         let pointerDownPos: { x: number; y: number } | null = null
         let hasDragged = false
         const DRAG_THRESHOLD = 5
@@ -248,35 +283,10 @@ export default function Home() {
                     e.offsetY,
                     (node) => node instanceof Mesh
                 )
-                if (result.hit) {
-                    if (lastResult?.pickedMesh) {
-                        lastResult.pickedMesh.renderOutline = false
-                    }
-                    lastResult = result
-                    if (result.pickedMesh) {
-                        setSelectedNode(result.pickedMesh as Mesh)
-                        result.pickedMesh.renderOutline = true
-                        if (selectedGizmo() === 'position') {
-                            gizmoManager.positionGizmoEnabled = true
-                        } else if (selectedGizmo() === 'rotation') {
-                            gizmoManager.rotationGizmoEnabled = true
-                        } else if (selectedGizmo() === 'scale') {
-                            gizmoManager.scaleGizmoEnabled = true
-                        } else if (selectedGizmo() === 'boundingBox') {
-                            gizmoManager.boundingBoxGizmoEnabled = true
-                        }
-                        gizmoManager.attachToMesh(result.pickedMesh as Mesh)
-                        hookGizmoDrag()
-                    }
+                if (result.hit && result.pickedMesh) {
+                    setSelectedNode(result.pickedMesh as Mesh)
                 } else {
                     setSelectedNode(undefined)
-                    if (lastResult?.pickedMesh) {
-                        lastResult.pickedMesh.renderOutline = false
-                    }
-                    gizmoManager.positionGizmoEnabled = false
-                    gizmoManager.rotationGizmoEnabled = false
-                    gizmoManager.scaleGizmoEnabled = false
-                    gizmoManager.boundingBoxGizmoEnabled = false
                 }
             }
             pointerDownPos = null
