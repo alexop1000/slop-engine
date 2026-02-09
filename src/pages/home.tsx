@@ -4,6 +4,7 @@ import {
     Scene,
     MeshBuilder,
     Mesh,
+    Node,
     Color3,
     StandardMaterial,
     GizmoManager,
@@ -62,7 +63,7 @@ export default function Home() {
     const [box2, setBox2] = createSignal<Mesh>()
     const [scale, setScale] = createSignal(1)
     const [scene, setScene] = createSignal<Scene>()
-    const [selectedNode, setSelectedNode] = createSignal<Mesh>()
+    const [selectedNode, setSelectedNode] = createSignal<Node>()
     const [engine, setEngine] = createSignal<Engine>()
     const [nodeTick, setNodeTick] = createSignal(0)
 
@@ -75,12 +76,22 @@ export default function Home() {
     function hookGizmoDrag() {
         const gm = gizmoManager()
         if (!gm) return
-        for (const g of [gm.gizmos.positionGizmo, gm.gizmos.rotationGizmo, gm.gizmos.scaleGizmo, gm.gizmos.boundingBoxGizmo]) {
+        for (const g of [
+            gm.gizmos.positionGizmo,
+            gm.gizmos.rotationGizmo,
+            gm.gizmos.scaleGizmo,
+            gm.gizmos.boundingBoxGizmo,
+        ]) {
             if (g && !(g as any).__dragHooked) {
-                (g as any).__dragHooked = true
+                ;(g as any).__dragHooked = true
                 const gizmo = g as any
-                gizmo.onDragStartObservable?.add(() => { _isDraggingGizmo = true })
-                gizmo.onDragEndObservable?.add(() => { _isDraggingGizmo = false; setNodeTick(t => t + 1) })
+                gizmo.onDragStartObservable?.add(() => {
+                    _isDraggingGizmo = true
+                })
+                gizmo.onDragEndObservable?.add(() => {
+                    _isDraggingGizmo = false
+                    setNodeTick((t) => t + 1)
+                })
             }
         }
     }
@@ -93,7 +104,9 @@ export default function Home() {
         gizmoManager()!.rotationGizmoEnabled = gizmo === 'rotation'
         gizmoManager()!.scaleGizmoEnabled = gizmo === 'scale'
         gizmoManager()!.boundingBoxGizmoEnabled = gizmo === 'boundingBox'
-        gizmoManager()?.attachToMesh(selectedNode() as Mesh)
+        gizmoManager()?.attachToMesh(
+            selectedNode() instanceof Mesh ? (selectedNode() as Mesh) : null
+        )
         hookGizmoDrag()
     }
 
@@ -182,12 +195,28 @@ export default function Home() {
             return redMaterial
         }
 
+        const createGreenMaterial = () => {
+            const name = `green-material-${Math.random()
+                .toString(36)
+                .slice(2, 9)}`
+            const greenMaterial = new StandardMaterial(name, scene)
+            greenMaterial.diffuseColor = new Color3(0, 1, 0)
+            greenMaterial.specularColor = new Color3(1, 1, 1)
+            greenMaterial.specularPower = 100
+            return greenMaterial
+        }
+
         const box = MeshBuilder.CreateBox('box', { size: 2 }, scene)
         box.position.y = 3
-        const box2 = MeshBuilder.CreateBox('box', { size: 2 }, scene)
+        const box2 = MeshBuilder.CreateBox('box2', { size: 2 }, scene)
         box2.position.y = 6
         box.material = createRedMaterial()
         box2.material = createRedMaterial()
+
+        const childBox = MeshBuilder.CreateBox('child-box', { size: 1 }, scene)
+        childBox.parent = box2
+        childBox.position.y = 2
+        childBox.material = createGreenMaterial()
         const gizmoManager = new GizmoManager(scene)
         gizmoManager.positionGizmoEnabled = false
         gizmoManager.rotationGizmoEnabled = false
@@ -255,7 +284,7 @@ export default function Home() {
         })
         setGizmoManager(gizmoManager)
         scene.onBeforeRenderObservable.add(() => {
-            if (_isDraggingGizmo) setNodeTick(t => t + 1)
+            if (_isDraggingGizmo) setNodeTick((t) => t + 1)
         })
         setBox(box)
         setBox2(box2)
@@ -471,7 +500,13 @@ export default function Home() {
                             minSize={0.05}
                             class="bg-gray-800 p-2 rounded-md size-full"
                         >
-                            <ScenePanel />
+                            <ScenePanel
+                                scene={scene}
+                                selectedNode={selectedNode}
+                                setSelectedNode={setSelectedNode}
+                                nodeTick={nodeTick}
+                                setNodeTick={setNodeTick}
+                            />
                         </Resizable.Panel>
                         <Resizable.Handle class="group basis-3 py-1">
                             <Handle />
@@ -481,7 +516,12 @@ export default function Home() {
                             minSize={0.05}
                             class="bg-gray-800 p-2 rounded-md overflow-y-auto"
                         >
-                            <PropertiesPanel node={() => { nodeTick(); return selectedNode() }} />
+                            <PropertiesPanel
+                                node={() => {
+                                    nodeTick()
+                                    return selectedNode()
+                                }}
+                            />
                         </Resizable.Panel>
                     </Resizable>
                 </Resizable.Panel>

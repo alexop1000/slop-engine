@@ -68,3 +68,6 @@ export type {
     IconButtonVariant,
     IconButtonSize,
 } from './IconButton'
+
+export { TreeView } from './TreeView'
+export type { TreeViewProps, TreeNode, TreeMoveEvent } from './TreeView'
