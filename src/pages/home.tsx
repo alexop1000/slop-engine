@@ -470,8 +470,8 @@ export default function Home() {
                     <Handle />
                 </Resizable.Handle>
                 <Resizable.Panel
-                    initialSize={0.15}
-                    minSize={0.05}
+                    initialSize={0.2 }
+                    minSize={0.15}
                     class="size-full"
                 >
                     <Resizable
