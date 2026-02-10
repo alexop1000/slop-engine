@@ -470,7 +470,7 @@ export default function Home() {
                     <Handle />
                 </Resizable.Handle>
                 <Resizable.Panel
-                    initialSize={0.2 }
+                    initialSize={0.2}
                     minSize={0.15}
                     class="size-full"
                 >
@@ -486,7 +486,7 @@ export default function Home() {
                         <Resizable.Panel
                             initialSize={0.5}
                             minSize={0.05}
-                            class="bg-gray-800 p-2 rounded-md size-full"
+                            class="bg-gray-800 p-2 rounded-md size-full overflow-y-auto"
                         >
                             <ScenePanel
                                 scene={scene}
@@ -509,6 +509,7 @@ export default function Home() {
                                     nodeTick()
                                     return selectedNode()
                                 }}
+                                setNodeTick={setNodeTick}
                             />
                         </Resizable.Panel>
                     </Resizable>

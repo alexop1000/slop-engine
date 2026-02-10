@@ -9,7 +9,7 @@ import {
     TransformNode,
     Vector3,
 } from 'babylonjs'
-import { Accessor, Show, Switch, Match } from 'solid-js'
+import { Accessor, Setter, Show, Switch, Match } from 'solid-js'
 import { Checkbox, Collapsible, Color3Input, Input, Vector3Input } from '../ui'
 
 const fmt = (v: number | undefined) => v?.toFixed(3)
@@ -162,7 +162,10 @@ function MaterialProperties(props: Readonly<{ node: () => Mesh | undefined }>) {
 }
 
 export default function PropertiesPanel(
-    props: Readonly<{ node: Accessor<Node | undefined> }>
+    props: Readonly<{
+        node: Accessor<Node | undefined>
+        setNodeTick: Setter<number>
+    }>
 ) {
     const meshNode = () => props.node() as Mesh | undefined
     const transformNode = () => props.node() as TransformNode | undefined
@@ -179,6 +182,7 @@ export default function PropertiesPanel(
                         value={props.node()?.name}
                         onChange={(e) => {
                             props.node()!.name = e.currentTarget.value
+                            props.setNodeTick((t) => t + 1)
                         }}
                     />
                 </Show>
