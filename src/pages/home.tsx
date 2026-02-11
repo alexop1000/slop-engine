@@ -28,12 +28,14 @@ import { Icon } from 'solid-heroicons'
 import Handle from '../components/Handle'
 import {
     AIPanel,
+    AssetPanel,
     ViewportPanel,
     ConsolePanel,
     ScenePanel,
+    ScriptPanel,
     PropertiesPanel,
 } from '../components/panels'
-import { Button, IconButton, Tooltip } from '../components/ui'
+import { Button, IconButton, Tooltip, Tabs, TabPanel } from '../components/ui'
 import {
     createDefaultScene,
     loadSceneFromJson,
@@ -84,7 +86,10 @@ export default function Home() {
 
     let _isDraggingGizmo = false
     const _physicsAggregates = new Map<Mesh, PhysicsAggregate>()
-    const _transformSnapshots = new Map<Mesh, ReturnType<typeof captureTransformSnapshot>>()
+    const _transformSnapshots = new Map<
+        Mesh,
+        ReturnType<typeof captureTransformSnapshot>
+    >()
     function hookGizmoDrag() {
         const gm = gizmoManager()
         if (!gm) return
@@ -168,7 +173,11 @@ export default function Home() {
         const savedJson = sceneJson()
         if (savedJson) {
             try {
-                const result = await loadSceneFromJson(eng, savedJson, physicsPlugin)
+                const result = await loadSceneFromJson(
+                    eng,
+                    savedJson,
+                    physicsPlugin
+                )
                 scene = result.scene
                 dynamicNames = result.dynamicPhysicsMeshNames
             } catch {
@@ -267,7 +276,9 @@ export default function Home() {
                                 setIsPlaying(false)
                             } else {
                                 for (const name of dynamicPhysicsMeshNames()) {
-                                    const mesh = s.getMeshByName(name) as Mesh | null
+                                    const mesh = s.getMeshByName(
+                                        name
+                                    ) as Mesh | null
                                     if (!mesh) continue
                                     _transformSnapshots.set(
                                         mesh,
@@ -419,9 +430,27 @@ export default function Home() {
                         <Resizable.Panel
                             initialSize={0.9}
                             minSize={0.1}
-                            class="bg-gray-800 p-2 rounded-md h-full overflow-hidden"
+                            class="bg-gray-800 p-2 rounded-md h-full overflow-hidden flex flex-col"
                         >
-                            <ViewportPanel />
+                            <Tabs
+                                tabs={[
+                                    { id: 'viewport', label: 'Viewport' },
+                                    { id: 'script', label: 'Script' },
+                                ]}
+                                defaultTab="viewport"
+                                class="flex flex-col flex-1 min-h-0"
+                                contentClass="flex-1 min-h-0 flex flex-col"
+                            >
+                                <TabPanel
+                                    tabId="viewport"
+                                    class="flex-1 min-h-0"
+                                >
+                                    <ViewportPanel />
+                                </TabPanel>
+                                <TabPanel tabId="script" class="flex-1 min-h-0">
+                                    <ScriptPanel />
+                                </TabPanel>
+                            </Tabs>
                         </Resizable.Panel>
                         <Resizable.Handle class="group basis-3 py-1">
                             <Handle />
@@ -431,7 +460,25 @@ export default function Home() {
                             minSize={0.05}
                             class="bg-gray-800 p-2 rounded-md h-full overflow-hidden"
                         >
-                            <ConsolePanel />
+                            <Tabs
+                                tabs={[
+                                    { id: 'console', label: 'Console' },
+                                    { id: 'assets', label: 'Assets' },
+                                ]}
+                                defaultTab="console"
+                                class="flex flex-col flex-1 min-h-0"
+                                contentClass="flex-1 min-h-0 flex flex-col"
+                            >
+                                <TabPanel
+                                    tabId="console"
+                                    class="flex-1 min-h-0"
+                                >
+                                    <ConsolePanel />
+                                </TabPanel>
+                                <TabPanel tabId="assets" class="flex-1 min-h-0">
+                                    <AssetPanel />
+                                </TabPanel>
+                            </Tabs>
                         </Resizable.Panel>
                     </Resizable>
                 </Resizable.Panel>

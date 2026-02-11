@@ -27,6 +27,7 @@ export interface TabsProps {
     onChange?: (tabId: string) => void
     children: JSX.Element
     class?: string
+    contentClass?: string
 }
 
 export interface TabPanelProps extends JSX.HTMLAttributes<HTMLDivElement> {
@@ -40,6 +41,7 @@ export function Tabs(props: TabsProps) {
         'onChange',
         'children',
         'class',
+        'contentClass',
     ])
 
     const [activeTab, setActiveTabState] = createSignal(
@@ -86,7 +88,7 @@ export function Tabs(props: TabsProps) {
                         </For>
                     </nav>
                 </div>
-                <div class="mt-4">{local.children}</div>
+                <div class={local.contentClass ?? 'mt-4'}>{local.children}</div>
             </div>
         </TabsContext.Provider>
     )

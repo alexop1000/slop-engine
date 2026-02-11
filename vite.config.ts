@@ -11,7 +11,7 @@ export default defineConfig({
         target: 'esnext',
     },
     optimizeDeps: {
-        exclude: ['@babylonjs/havok'],
+        exclude: ['@babylonjs/havok', 'monaco-editor'],
     },
     assetsInclude: ['**/*.wasm'],
 })

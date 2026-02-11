@@ -1,5 +1,7 @@
 export { default as AIPanel } from './AIPanel'
+export { default as AssetPanel } from './AssetPanel'
 export { default as ViewportPanel } from './ViewportPanel'
 export { default as ConsolePanel } from './ConsolePanel'
 export { default as ScenePanel } from './ScenePanel'
+export { default as ScriptPanel } from './ScriptPanel'
 export { default as PropertiesPanel } from './PropertiesPanel'
