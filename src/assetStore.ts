@@ -259,3 +259,11 @@ export function createAssetStore() {
         idToPath,
     }
 }
+
+/** Shared singleton asset store instance. */
+let _sharedStore: ReturnType<typeof createAssetStore> | null = null
+
+export function getAssetStore(): ReturnType<typeof createAssetStore> {
+    if (!_sharedStore) _sharedStore = createAssetStore()
+    return _sharedStore
+}

@@ -28,6 +28,7 @@
     "monaco-editor": "^0.55.1",
     "shadcn-solid": "^0.7.7",
     "solid-heroicons": "^3.2.4",
-    "solid-js": "^1.9.11"
+    "solid-js": "^1.9.11",
+    "sucrase": "^3.35.1"
   }
 }

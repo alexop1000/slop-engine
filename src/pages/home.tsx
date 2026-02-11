@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onMount, untrack } from 'solid-js'
+import { createSignal, createEffect, createMemo, onMount, untrack } from 'solid-js'
 import {
     Engine,
     Scene,
@@ -44,6 +44,26 @@ import {
     captureTransformSnapshot,
     restoreTransform,
 } from '../scene/EditorScene'
+import { onScriptOpen } from '../scriptEditorStore'
+import { ScriptRuntime } from '../scripting/ScriptRuntime'
+import { getAssetStore, type AssetNode } from '../assetStore'
+import { clearLogs } from '../scripting/consoleStore'
+
+const SCRIPT_EXT = ['.ts', '.tsx', '.js', '.jsx']
+
+function collectScriptPaths(node: AssetNode): string[] {
+    if (node.type === 'file') {
+        const lower = node.path.toLowerCase()
+        return SCRIPT_EXT.some((ext) => lower.endsWith(ext))
+            ? [node.path]
+            : []
+    }
+    const paths: string[] = []
+    for (const child of node.children ?? []) {
+        paths.push(...collectScriptPaths(child))
+    }
+    return paths
+}
 
 async function getInitializedHavok() {
     return await HavokPhysics()
@@ -84,12 +104,23 @@ export default function Home() {
         'position' | 'rotation' | 'scale' | 'boundingBox'
     >('position')
 
+    // Script tab switching
+    const [viewportTab, setViewportTab] = createSignal<string | undefined>(
+        undefined
+    )
+    onScriptOpen(() => setViewportTab('script'))
+
     let _isDraggingGizmo = false
     const _physicsAggregates = new Map<Mesh, PhysicsAggregate>()
     const _transformSnapshots = new Map<
         Mesh,
         ReturnType<typeof captureTransformSnapshot>
     >()
+    let _scriptRuntime: ScriptRuntime | null = null
+
+    // Derive available script file paths from the shared asset store
+    const assetStore = getAssetStore()
+    const scriptAssets = createMemo(() => collectScriptPaths(assetStore.tree()))
     function hookGizmoDrag() {
         const gm = gizmoManager()
         if (!gm) return
@@ -262,10 +293,16 @@ export default function Home() {
                     <Button
                         variant={isPlaying() ? 'primary' : 'secondary'}
                         size="md"
-                        onClick={() => {
+                        onClick={async () => {
                             const s = scene()
                             if (!s) return
                             if (isPlaying()) {
+                                // Stop scripts first
+                                if (_scriptRuntime) {
+                                    _scriptRuntime.stop()
+                                    _scriptRuntime = null
+                                }
+
                                 for (const [mesh, agg] of _physicsAggregates) {
                                     agg.dispose()
                                     const snap = _transformSnapshots.get(mesh)
@@ -275,6 +312,8 @@ export default function Home() {
                                 _transformSnapshots.clear()
                                 setIsPlaying(false)
                             } else {
+                                clearLogs()
+
                                 for (const name of dynamicPhysicsMeshNames()) {
                                     const mesh = s.getMeshByName(
                                         name
@@ -292,6 +331,14 @@ export default function Home() {
                                     )
                                     _physicsAggregates.set(mesh, agg)
                                 }
+
+                                // Start scripts after physics
+                                const canvas = document.getElementById(
+                                    'canvas'
+                                ) as HTMLCanvasElement
+                                _scriptRuntime = new ScriptRuntime()
+                                await _scriptRuntime.start(s, canvas)
+
                                 setIsPlaying(true)
                             }
                         }}
@@ -438,6 +485,8 @@ export default function Home() {
                                     { id: 'script', label: 'Script' },
                                 ]}
                                 defaultTab="viewport"
+                                activeTab={viewportTab}
+                                onChange={(id) => setViewportTab(id)}
                                 class="flex flex-col flex-1 min-h-0"
                                 contentClass="flex-1 min-h-0 flex flex-col"
                             >
@@ -530,6 +579,7 @@ export default function Home() {
                                     return selectedNode()
                                 }}
                                 setNodeTick={setNodeTick}
+                                scriptAssets={scriptAssets}
                             />
                         </Resizable.Panel>
                     </Resizable>

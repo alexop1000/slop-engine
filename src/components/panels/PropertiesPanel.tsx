@@ -7,10 +7,10 @@ import {
     ShadowLight,
     StandardMaterial,
     TransformNode,
-    Vector3,
 } from 'babylonjs'
-import { Accessor, Setter, Show, Switch, Match } from 'solid-js'
-import { Checkbox, Collapsible, Color3Input, Input, Vector3Input } from '../ui'
+import { Accessor, Setter, Show, Switch, Match, For, createSignal } from 'solid-js'
+import { Checkbox, Collapsible, Color3Input, Input, Vector3Input, Button, Select } from '../ui'
+import { openScriptFile } from '../../scriptEditorStore'
 
 const fmt = (v: number | undefined) => v?.toFixed(3)
 
@@ -161,10 +161,124 @@ function MaterialProperties(props: Readonly<{ node: () => Mesh | undefined }>) {
     )
 }
 
+/** Read the scripts array from node.metadata, or return []. */
+function getNodeScripts(node: Node): string[] {
+    const meta = node.metadata as { scripts?: string[] } | undefined
+    return meta?.scripts ?? []
+}
+
+/** Set the scripts array on node.metadata (preserving other metadata). */
+function setNodeScripts(node: Node, scripts: string[]): void {
+    if (!node.metadata) node.metadata = {}
+    const meta = node.metadata as Record<string, unknown>
+    meta.scripts = scripts.length > 0 ? scripts : undefined
+}
+
+function ScriptProperties(
+    props: Readonly<{
+        node: () => Node | undefined
+        scriptAssets: Accessor<string[]>
+        setNodeTick: Setter<number>
+    }>
+) {
+    const [addPath, setAddPath] = createSignal('')
+
+    const attachedScripts = () => {
+        const n = props.node()
+        if (!n) return []
+        // Force dependency on nodeTick for reactivity
+        return getNodeScripts(n)
+    }
+
+    const availableScripts = () => {
+        const attached = new Set(attachedScripts())
+        return props.scriptAssets().filter((p) => !attached.has(p))
+    }
+
+    const addScript = () => {
+        const n = props.node()
+        const path = addPath()
+        if (!n || !path) return
+        const current = getNodeScripts(n)
+        if (!current.includes(path)) {
+            setNodeScripts(n, [...current, path])
+            props.setNodeTick((t) => t + 1)
+        }
+        setAddPath('')
+    }
+
+    const removeScript = (path: string) => {
+        const n = props.node()
+        if (!n) return
+        setNodeScripts(
+            n,
+            getNodeScripts(n).filter((s) => s !== path)
+        )
+        props.setNodeTick((t) => t + 1)
+    }
+
+    return (
+        <Collapsible title="Scripts">
+            <div class="flex flex-col gap-2 pb-2">
+                <For each={attachedScripts()}>
+                    {(path) => (
+                        <div class="flex items-center justify-between bg-gray-800 rounded px-2 py-1 text-xs">
+                            <button
+                                type="button"
+                                class="text-blue-400 hover:text-blue-300 truncate text-left flex-1"
+                                onClick={() => openScriptFile(path)}
+                                title="Open in editor"
+                            >
+                                {path}
+                            </button>
+                            <button
+                                type="button"
+                                class="text-gray-500 hover:text-red-400 ml-2 shrink-0"
+                                onClick={() => removeScript(path)}
+                                title="Remove script"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    )}
+                </For>
+                <Show when={availableScripts().length > 0}>
+                    <div class="flex gap-1">
+                        <Select
+                            options={availableScripts().map((p) => ({
+                                value: p,
+                                label: p,
+                            }))}
+                            placeholder="Add script..."
+                            value={addPath()}
+                            onChange={(e) => setAddPath(e.currentTarget.value)}
+                            class="py-1! text-xs!"
+                        />
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={addScript}
+                            disabled={!addPath()}
+                        >
+                            +
+                        </Button>
+                    </div>
+                </Show>
+                <Show when={attachedScripts().length === 0 && availableScripts().length === 0}>
+                    <p class="text-xs text-gray-500">
+                        No script files in assets
+                    </p>
+                </Show>
+            </div>
+        </Collapsible>
+    )
+}
+
 export default function PropertiesPanel(
     props: Readonly<{
         node: Accessor<Node | undefined>
         setNodeTick: Setter<number>
+        scriptAssets: Accessor<string[]>
     }>
 ) {
     const meshNode = () => props.node() as Mesh | undefined
@@ -454,6 +568,13 @@ export default function PropertiesPanel(
                         </>
                     </Match>
                 </Switch>
+                <Show when={props.node()}>
+                    <ScriptProperties
+                        node={() => props.node()}
+                        scriptAssets={props.scriptAssets}
+                        setNodeTick={props.setNodeTick}
+                    />
+                </Show>
             </div>
         </>
     )

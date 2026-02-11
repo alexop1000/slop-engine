@@ -5,6 +5,7 @@ import {
     createContext,
     useContext,
     createSignal,
+    createEffect,
     Accessor,
 } from 'solid-js'
 
@@ -24,6 +25,7 @@ const TabsContext = createContext<TabsContextValue>()
 export interface TabsProps {
     tabs: Tab[]
     defaultTab?: string
+    activeTab?: Accessor<string | undefined>
     onChange?: (tabId: string) => void
     children: JSX.Element
     class?: string
@@ -38,6 +40,7 @@ export function Tabs(props: TabsProps) {
     const [local, rest] = splitProps(props, [
         'tabs',
         'defaultTab',
+        'activeTab',
         'onChange',
         'children',
         'class',
@@ -47,6 +50,14 @@ export function Tabs(props: TabsProps) {
     const [activeTab, setActiveTabState] = createSignal(
         local.defaultTab ?? local.tabs[0]?.id ?? ''
     )
+
+    // Sync from controlled prop when provided
+    createEffect(() => {
+        const controlled = local.activeTab?.()
+        if (controlled !== undefined) {
+            setActiveTabState(controlled)
+        }
+    })
 
     const setActiveTab = (id: string) => {
         setActiveTabState(id)

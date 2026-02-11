@@ -31,6 +31,7 @@ export interface TreeViewProps<T = unknown> {
     items: TreeNode<T>[]
     selectedId?: Accessor<string | undefined>
     onSelect?: (id: string, data: T | undefined) => void
+    onDoubleClick?: (id: string, data: T | undefined) => void
     onMove?: (event: TreeMoveEvent<T>) => void
     onContextMenu?: (event: TreeContextMenuEvent<T>) => void
     defaultExpanded?: string[]
@@ -38,12 +39,17 @@ export interface TreeViewProps<T = unknown> {
 }
 
 /** Check if `ancestorId` is an ancestor of `nodeId` in the tree. */
-function isAncestor<T>(nodes: TreeNode<T>[], ancestorId: string, nodeId: string): boolean {
+function isAncestor<T>(
+    nodes: TreeNode<T>[],
+    ancestorId: string,
+    nodeId: string
+): boolean {
     for (const node of nodes) {
         if (node.id === ancestorId) {
             return containsId(node.children ?? [], nodeId)
         }
-        if (node.children && isAncestor(node.children, ancestorId, nodeId)) return true
+        if (node.children && isAncestor(node.children, ancestorId, nodeId))
+            return true
     }
     return false
 }
@@ -56,21 +62,24 @@ function containsId<T>(nodes: TreeNode<T>[], id: string): boolean {
     return false
 }
 
-function TreeItem<T>(props: Readonly<{
-    node: TreeNode<T>
-    depth: number
-    selectedId: Accessor<string | undefined> | undefined
-    onSelect: ((id: string, data: T | undefined) => void) | undefined
-    onContextMenu: ((event: TreeContextMenuEvent<T>) => void) | undefined
-    expanded: Accessor<Set<string>>
-    setExpanded: Setter<Set<string>>
-    dragState: Accessor<DragState<T> | null>
-    setDragState: Setter<DragState<T> | null>
-    dropTarget: Accessor<DropTarget | null>
-    setDropTarget: Setter<DropTarget | null>
-    items: TreeNode<T>[]
-    onMove: ((event: TreeMoveEvent<T>) => void) | undefined
-}>) {
+function TreeItem<T>(
+    props: Readonly<{
+        node: TreeNode<T>
+        depth: number
+        selectedId: Accessor<string | undefined> | undefined
+        onSelect: ((id: string, data: T | undefined) => void) | undefined
+        onDoubleClick: ((id: string, data: T | undefined) => void) | undefined
+        onContextMenu: ((event: TreeContextMenuEvent<T>) => void) | undefined
+        expanded: Accessor<Set<string>>
+        setExpanded: Setter<Set<string>>
+        dragState: Accessor<DragState<T> | null>
+        setDragState: Setter<DragState<T> | null>
+        dropTarget: Accessor<DropTarget | null>
+        setDropTarget: Setter<DropTarget | null>
+        items: TreeNode<T>[]
+        onMove: ((event: TreeMoveEvent<T>) => void) | undefined
+    }>
+) {
     const hasChildren = () => (props.node.children?.length ?? 0) > 0
     const isExpanded = () => props.expanded().has(props.node.id)
     const isSelected = () => props.selectedId?.() === props.node.id
@@ -78,7 +87,7 @@ function TreeItem<T>(props: Readonly<{
 
     const toggleExpand = (e: MouseEvent) => {
         e.stopPropagation()
-        props.setExpanded(prev => {
+        props.setExpanded((prev) => {
             const next = new Set(prev)
             if (next.has(props.node.id)) next.delete(props.node.id)
             else next.add(props.node.id)
@@ -88,6 +97,10 @@ function TreeItem<T>(props: Readonly<{
 
     const handleSelect = () => {
         props.onSelect?.(props.node.id, props.node.data)
+    }
+
+    const handleDoubleClick = () => {
+        props.onDoubleClick?.(props.node.id, props.node.data)
     }
 
     const handleContextMenu = (e: MouseEvent) => {
@@ -173,23 +186,33 @@ function TreeItem<T>(props: Readonly<{
     }
 
     return (
-        <div role="treeitem" aria-expanded={hasChildren() ? isExpanded() : undefined}>
+        <div
+            role="treeitem"
+            aria-expanded={hasChildren() ? isExpanded() : undefined}
+        >
             <div
                 class={`flex items-center gap-1 py-0.5 pr-2 cursor-pointer text-sm select-none transition-colors duration-150 rounded-sm ${
                     isDragging()
                         ? 'opacity-40'
                         : isSelected()
-                            ? 'bg-blue-500/20 text-blue-100'
-                            : 'text-gray-300 hover:bg-gray-700/50'
+                        ? 'bg-blue-500/20 text-blue-100'
+                        : 'text-gray-300 hover:bg-gray-700/50'
                 } ${
-                    dropIndicator() === 'inside' ? 'bg-blue-500/30 ring-1 ring-blue-500/50' : ''
+                    dropIndicator() === 'inside'
+                        ? 'bg-blue-500/30 ring-1 ring-blue-500/50'
+                        : ''
                 } ${
-                    dropIndicator() === 'before' ? 'border-t border-blue-400' : ''
+                    dropIndicator() === 'before'
+                        ? 'border-t border-blue-400'
+                        : ''
                 } ${
-                    dropIndicator() === 'after' ? 'border-b border-blue-400' : ''
+                    dropIndicator() === 'after'
+                        ? 'border-b border-blue-400'
+                        : ''
                 }`}
-                style={{ "padding-left": `${props.depth * 1.25 + 0.25}rem` }}
+                style={{ 'padding-left': `${props.depth * 1.25 + 0.25}rem` }}
                 onClick={handleSelect}
+                onDblClick={handleDoubleClick}
                 onContextMenu={handleContextMenu}
                 draggable={true}
                 onDragStart={handleDragStart}
@@ -215,7 +238,10 @@ function TreeItem<T>(props: Readonly<{
                 </Show>
 
                 <Show when={props.node.icon}>
-                    <Icon path={props.node.icon!} class="size-4 shrink-0 text-gray-400" />
+                    <Icon
+                        path={props.node.icon!}
+                        class="size-4 shrink-0 text-gray-400"
+                    />
                 </Show>
 
                 <span class="truncate">{props.node.label}</span>
@@ -230,6 +256,7 @@ function TreeItem<T>(props: Readonly<{
                                 depth={props.depth + 1}
                                 selectedId={props.selectedId}
                                 onSelect={props.onSelect}
+                                onDoubleClick={props.onDoubleClick}
                                 onContextMenu={props.onContextMenu}
                                 expanded={props.expanded}
                                 setExpanded={props.setExpanded}
@@ -286,6 +313,7 @@ export function TreeView<T = unknown>(props: TreeViewProps<T>) {
                         depth={0}
                         selectedId={props.selectedId}
                         onSelect={props.onSelect}
+                        onDoubleClick={props.onDoubleClick}
                         onContextMenu={props.onContextMenu}
                         expanded={expanded}
                         setExpanded={setExpanded}

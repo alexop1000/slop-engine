@@ -28,13 +28,14 @@ import {
 } from '../ui'
 import type { ContextMenuItem } from '../ui'
 import {
-    createAssetStore,
+    getAssetStore,
     getBlob,
     setBlob,
     deleteBlob,
     pathToId,
     type AssetNode,
 } from '../../assetStore'
+import { openScriptFile } from '../../scriptEditorStore'
 
 // ── Constants ──────────────────────────────────────────────
 
@@ -89,7 +90,7 @@ function assetToTreeNode(node: AssetNode): TreeNode<AssetNode> {
 // ── Blob migration helper ──────────────────────────────────
 
 async function migrateBlobs(
-    store: ReturnType<typeof createAssetStore>,
+    store: ReturnType<typeof getAssetStore>,
     node: AssetNode,
     oldPath: string,
     newPath: string
@@ -114,7 +115,7 @@ async function migrateBlobs(
 
 // ── Store singleton ────────────────────────────────────────
 
-const store = createAssetStore()
+const store = getAssetStore()
 
 // ── Component ──────────────────────────────────────────────
 
@@ -178,6 +179,14 @@ export default function AssetPanel() {
         setSelectedPath(data?.path ?? null)
     }
 
+    const handleDoubleClick = (_id: string, data: AssetNode | undefined) => {
+        if (!data || data.type !== 'file') return
+        const ext = data.name.slice(data.name.lastIndexOf('.')).toLowerCase()
+        if (SCRIPT_EXT.includes(ext)) {
+            openScriptFile(data.path)
+        }
+    }
+
     const handleContextMenu = (event: TreeContextMenuEvent<AssetNode>) => {
         const node = event.data ?? null
         if (node) setSelectedPath(node.path)
@@ -232,7 +241,7 @@ export default function AssetPanel() {
                 openModal('newFolder', { parentPath }, 'New Folder')
                 break
             case 'new-file':
-                openModal('newFile', { parentPath }, 'newfile.txt')
+                openModal('newFile', { parentPath }, 'newfile.ts')
                 break
             case 'import':
                 triggerFileImport(parentPath)
@@ -403,7 +412,7 @@ export default function AssetPanel() {
                             openModal(
                                 'newFile',
                                 { parentPath: '' },
-                                'newfile.txt'
+                                'newfile.ts'
                             )
                         }
                     >
@@ -440,6 +449,7 @@ export default function AssetPanel() {
                     items={treeItems()}
                     selectedId={selectedId}
                     onSelect={handleSelect}
+                    onDoubleClick={handleDoubleClick}
                     onMove={handleMove}
                     onContextMenu={handleContextMenu}
                     defaultExpanded={[]}
