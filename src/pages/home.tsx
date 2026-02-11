@@ -2,29 +2,27 @@ import { createSignal, createEffect, onMount, untrack } from 'solid-js'
 import {
     Engine,
     Scene,
-    MeshBuilder,
     Mesh,
     Node,
     Color3,
-    StandardMaterial,
     GizmoManager,
     UtilityLayerRenderer,
-    Vector3,
-    HavokPlugin,
     PhysicsAggregate,
     PhysicsShapeType,
-    UniversalCamera,
+    HavokPlugin,
 } from 'babylonjs'
-import HavokPhysics, { HavokPhysicsWithBindings } from '@babylonjs/havok'
+import HavokPhysics from '@babylonjs/havok'
 
 import Resizable from 'corvu/resizable'
 import { makePersisted } from '@solid-primitives/storage'
-import { minus, pause, play, plus, stop } from 'solid-heroicons/solid'
+import { play, stop } from 'solid-heroicons/solid'
 import {
     arrowPath,
     arrowsPointingOut,
     arrowsRightLeft,
     cubeTransparent,
+    arrowDownTray,
+    arrowUpTray,
 } from 'solid-heroicons/outline'
 import { Icon } from 'solid-heroicons'
 import Handle from '../components/Handle'
@@ -36,6 +34,14 @@ import {
     PropertiesPanel,
 } from '../components/panels'
 import { Button, IconButton, Tooltip } from '../components/ui'
+import {
+    createDefaultScene,
+    loadSceneFromJson,
+    serializeScene,
+    setupEditorCamera,
+    captureTransformSnapshot,
+    restoreTransform,
+} from '../scene/EditorScene'
 
 async function getInitializedHavok() {
     return await HavokPhysics()
@@ -57,12 +63,16 @@ export default function Home() {
             name: 'properties-resizable-sizes-v1',
         }
     )
+    const [sceneJson, setSceneJson] = makePersisted(
+        createSignal<string | null>(null),
+        { name: 'slop-engine-scene-v1' }
+    )
 
     const [isPlaying, setIsPlaying] = createSignal(false)
-    const [box, setBox] = createSignal<Mesh>()
-    const [box2, setBox2] = createSignal<Mesh>()
-    const [scale, setScale] = createSignal(1)
     const [scene, setScene] = createSignal<Scene>()
+    const [dynamicPhysicsMeshNames, setDynamicPhysicsMeshNames] = createSignal<
+        string[]
+    >([])
     const [selectedNode, setSelectedNode] = createSignal<Node>()
     const [engine, setEngine] = createSignal<Engine>()
     const [nodeTick, setNodeTick] = createSignal(0)
@@ -73,6 +83,8 @@ export default function Home() {
     >('position')
 
     let _isDraggingGizmo = false
+    const _physicsAggregates = new Map<Mesh, PhysicsAggregate>()
+    const _transformSnapshots = new Map<Mesh, ReturnType<typeof captureTransformSnapshot>>()
     function hookGizmoDrag() {
         const gm = gizmoManager()
         if (!gm) return
@@ -147,111 +159,32 @@ export default function Home() {
 
     onMount(async () => {
         const canvas = document.getElementById('canvas') as HTMLCanvasElement
-        const engine = new Engine(canvas, true)
-        const scene = new Scene(engine)
-
-        // Create UniversalCamera for WASD flying navigation
-        const camera = new UniversalCamera(
-            'camera',
-            new Vector3(0, 5, -20),
-            scene
-        )
-        camera.attachControl(canvas, true)
-
-        // Set camera movement speed
-        const normalSpeed = 0.5
-        const fastSpeed = 1.5
-        camera.speed = normalSpeed
-        camera.angularSensibility = 2000
-
-        // Enable WASD keys
-        camera.keysUp.push(87) // W
-        camera.keysDown.push(83) // S
-        camera.keysLeft.push(65) // A
-        camera.keysRight.push(68) // D
-
-        // Enable flying mode (no gravity)
-        camera.applyGravity = false
-
-        // Set the camera as active
-        scene.activeCamera = camera
-
-        // Add shift key speed boost
-        scene.onKeyboardObservable.add((kbInfo) => {
-            if (kbInfo.type === 1) {
-                // Key down
-                if (kbInfo.event.key === 'Shift') {
-                    camera.speed = fastSpeed
-                }
-                // If you press E make camera go up, Q go down
-            } else if (kbInfo.type === 2) {
-                // Key up
-                if (kbInfo.event.key === 'Shift') {
-                    camera.speed = normalSpeed
-                }
-            }
-        })
-
-        scene.createDefaultLight(true)
-
+        const eng = new Engine(canvas, true)
         const initializedHavok = await getInitializedHavok()
-        console.log(initializedHavok)
         const physicsPlugin = new HavokPlugin(true, initializedHavok)
-        scene.enablePhysics(new Vector3(0, -9.81, 0), physicsPlugin)
 
-        const ground = MeshBuilder.CreateGround(
-            'ground1',
-            { width: 100, height: 100, subdivisions: 2 },
-            scene
-        )
-        ground.position.y = -1
-        const groundMaterial = new StandardMaterial('ground', scene)
-        groundMaterial.diffuseColor = new Color3(0.5, 0.5, 0.5)
-        groundMaterial.specularColor = new Color3(1, 1, 1)
-        groundMaterial.specularPower = 1111
-        groundMaterial.roughness = 0.1
-        ground.material = groundMaterial
-
-        const groundAggregate = new PhysicsAggregate(
-            ground,
-            PhysicsShapeType.BOX,
-            { mass: 0 },
-            scene
-        )
-
-        const createRedMaterial = () => {
-            const name = `red-material-${Math.random()
-                .toString(36)
-                .slice(2, 9)}`
-            const redMaterial = new StandardMaterial(name, scene)
-            redMaterial.diffuseColor = new Color3(1, 0, 0)
-            redMaterial.specularColor = new Color3(1, 1, 1)
-            redMaterial.specularPower = 100
-            return redMaterial
+        let scene: Scene
+        let dynamicNames: string[]
+        const savedJson = sceneJson()
+        if (savedJson) {
+            try {
+                const result = await loadSceneFromJson(eng, savedJson, physicsPlugin)
+                scene = result.scene
+                dynamicNames = result.dynamicPhysicsMeshNames
+            } catch {
+                const result = createDefaultScene(eng, physicsPlugin)
+                scene = result.scene
+                dynamicNames = result.dynamicPhysicsMeshNames
+            }
+        } else {
+            const result = createDefaultScene(eng, physicsPlugin)
+            scene = result.scene
+            dynamicNames = result.dynamicPhysicsMeshNames
         }
 
-        const createGreenMaterial = () => {
-            const name = `green-material-${Math.random()
-                .toString(36)
-                .slice(2, 9)}`
-            const greenMaterial = new StandardMaterial(name, scene)
-            greenMaterial.diffuseColor = new Color3(0, 1, 0)
-            greenMaterial.specularColor = new Color3(1, 1, 1)
-            greenMaterial.specularPower = 100
-            return greenMaterial
-        }
+        setupEditorCamera(scene, canvas)
+        setDynamicPhysicsMeshNames(dynamicNames)
 
-        const box = MeshBuilder.CreateBox('box', { size: 2 }, scene)
-        box.position.y = 3
-        const box2 = MeshBuilder.CreateBox('box2', { size: 2 }, scene)
-        box2.position.y = 6
-        box.material = createRedMaterial()
-        box2.material = createRedMaterial()
-
-        const childBox = MeshBuilder.CreateBox('child-box', { size: 1 }, scene)
-        childBox.parent = box2
-        childBox.position.y = 2
-        childBox.material = createGreenMaterial()
         const utilityLayer = new UtilityLayerRenderer(scene)
         const gizmoManager = new GizmoManager(scene, undefined, utilityLayer)
         gizmoManager.positionGizmoEnabled = false
@@ -296,21 +229,19 @@ export default function Home() {
         scene.onBeforeRenderObservable.add(() => {
             if (_isDraggingGizmo) setNodeTick((t) => t + 1)
         })
-        setBox(box)
-        setBox2(box2)
         setScene(scene)
-        setEngine(engine)
-        engine.runRenderLoop(() => scene.render())
+        setEngine(eng)
+        eng.runRenderLoop(() => scene.render())
 
         // Watch for canvas container resize
         const resizeObserver = new ResizeObserver(() => {
-            engine.resize()
+            eng.resize()
         })
         resizeObserver.observe(canvas.parentElement!)
 
         // On window resize
         window.addEventListener('resize', () => {
-            engine.resize()
+            eng.resize()
         })
     })
 
@@ -323,21 +254,35 @@ export default function Home() {
                         variant={isPlaying() ? 'primary' : 'secondary'}
                         size="md"
                         onClick={() => {
-                            if (!isPlaying()) {
-                                const boxAggregate = new PhysicsAggregate(
-                                    box()!,
-                                    PhysicsShapeType.BOX,
-                                    { mass: 1, restitution: 0.75 },
-                                    scene()
-                                )
-                                const boxAggregate2 = new PhysicsAggregate(
-                                    box2()!,
-                                    PhysicsShapeType.BOX,
-                                    { mass: 1, restitution: 0.75 },
-                                    scene()
-                                )
+                            const s = scene()
+                            if (!s) return
+                            if (isPlaying()) {
+                                for (const [mesh, agg] of _physicsAggregates) {
+                                    agg.dispose()
+                                    const snap = _transformSnapshots.get(mesh)
+                                    if (snap) restoreTransform(mesh, snap)
+                                }
+                                _physicsAggregates.clear()
+                                _transformSnapshots.clear()
+                                setIsPlaying(false)
+                            } else {
+                                for (const name of dynamicPhysicsMeshNames()) {
+                                    const mesh = s.getMeshByName(name) as Mesh | null
+                                    if (!mesh) continue
+                                    _transformSnapshots.set(
+                                        mesh,
+                                        captureTransformSnapshot(mesh)
+                                    )
+                                    const agg = new PhysicsAggregate(
+                                        mesh,
+                                        PhysicsShapeType.BOX,
+                                        { mass: 1, restitution: 0.75 },
+                                        s
+                                    )
+                                    _physicsAggregates.set(mesh, agg)
+                                }
+                                setIsPlaying(true)
                             }
-                            setIsPlaying(!isPlaying())
                         }}
                     >
                         <Icon path={isPlaying() ? stop : play} class="size-5" />
@@ -345,6 +290,34 @@ export default function Home() {
                             {isPlaying() ? 'Stop' : 'Play'}
                         </span>
                     </Button>
+                    <Tooltip content="Save scene" position="bottom">
+                        <IconButton
+                            label="Save"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                                const s = scene()
+                                if (s && !isPlaying())
+                                    setSceneJson(serializeScene(s))
+                            }}
+                        >
+                            <Icon path={arrowDownTray} class="size-5" />
+                        </IconButton>
+                    </Tooltip>
+                    <Tooltip content="Load default scene" position="bottom">
+                        <IconButton
+                            label="Load default"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                                if (isPlaying()) return
+                                setSceneJson(null)
+                                window.location.reload()
+                            }}
+                        >
+                            <Icon path={arrowUpTray} class="size-5" />
+                        </IconButton>
+                    </Tooltip>
                 </div>
 
                 <div class="flex items-center space-x-1">
