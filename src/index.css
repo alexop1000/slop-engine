@@ -36,3 +36,18 @@
         border-color: var(--color-gray-200, currentcolor);
     }
 }
+
+/* AI panel thin scrollbar */
+.ai-scrollbar::-webkit-scrollbar {
+    width: 4px;
+}
+.ai-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+.ai-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-gray-700);
+    border-radius: 2px;
+}
+.ai-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-gray-600);
+}
