@@ -140,7 +140,7 @@ export function chatApiPlugin(): Plugin {
 
                     const result = streamText({
                         model: azure(
-                            env.AZURE_DEPLOYMENT_NAME ?? 'gpt-4o-mini'
+                            env.AZURE_DEPLOYMENT_NAME ?? 'gpt-5.2-chat'
                         ),
                         system: buildSystemPrompt(server.config.root),
                         tools: {
