@@ -68,6 +68,9 @@ declare class Script {
     /** Find a mesh in the scene by name. Returns null if not found. */
     findMesh(name: string): Mesh | null
 
+    /** The active runtime camera. */
+    readonly camera: UniversalCamera
+
     /** Log a message to the console panel. */
     log(...args: any[]): void
 }
@@ -128,10 +131,10 @@ declare class Vector3 {
     subtractInPlace(other: Vector3): Vector3
     /** Scale this vector in place and return `this`. */
     scaleInPlace(factor: number): Vector3
-    /** Return a normalised copy of this vector. */
-    normalize(): Vector3
     /** Normalise this vector in place and return `this`. */
-    normalizeInPlace(): Vector3
+    normalize(): Vector3
+    /** Return a new normalised copy of this vector (original is unchanged). */
+    normalizeToNew(): Vector3
     /** Return the length (magnitude) of this vector. */
     length(): number
     /** Return the squared length (avoids a sqrt — faster for comparisons). */
@@ -304,12 +307,90 @@ declare class Light extends SceneNode {
 declare class Camera extends SceneNode {
     /** World-space position. */
     position: Vector3
+    /** Euler rotation in radians. */
+    rotation: Vector3
+    /** Quaternion rotation (overrides `rotation` when set). Set to null to use Euler. */
+    rotationQuaternion: Quaternion | null
     /** Vertical field of view in radians. */
     fov: number
     /** Near clipping distance. */
     minZ: number
     /** Far clipping distance. */
     maxZ: number
+    /** The forward direction vector in world space. */
+    getDirection(localAxis: Vector3): Vector3
+    /** Return the absolute (world) position. */
+    getAbsolutePosition(): Vector3
+}
+
+/**
+ * A universal (first-person style) camera.
+ *
+ * During play mode the runtime creates a UniversalCamera with no built-in
+ * input handlers — you control it entirely through scripting.
+ *
+ * @example
+ * export default class extends Script {
+ *     speed = 10
+ *
+ *     update() {
+ *         // Simple WASD + mouse-look camera
+ *         const move = vec3(0, 0, 0)
+ *         if (this.input.isKeyDown('KeyW')) move.z += 1
+ *         if (this.input.isKeyDown('KeyS')) move.z -= 1
+ *         if (this.input.isKeyDown('KeyA')) move.x -= 1
+ *         if (this.input.isKeyDown('KeyD')) move.x += 1
+ *
+ *         // Move in camera-local space
+ *         const forward = this.camera.getDirection(Vector3.Forward())
+ *         const right = this.camera.getDirection(Vector3.Right())
+ *         this.camera.position.addInPlace(
+ *             forward.scale(move.z * this.speed * this.deltaTime)
+ *         )
+ *         this.camera.position.addInPlace(
+ *             right.scale(move.x * this.speed * this.deltaTime)
+ *         )
+ *
+ *         // Mouse look
+ *         this.camera.rotation.y += this.input.mouseDeltaX * 0.002
+ *         this.camera.rotation.x += this.input.mouseDeltaY * 0.002
+ *     }
+ * }
+ */
+declare class UniversalCamera extends Camera {
+    /** Movement speed when using built-in keyboard controls. */
+    speed: number
+    /** Mouse rotation sensitivity. Higher values = less sensitive. Default: 2000. */
+    angularSensibility: number
+    /** Deceleration factor for movement (0 = instant stop, 0.9 = smooth glide). */
+    inertia: number
+
+    /** The target point the camera looks at. */
+    target: Vector3
+    /** Set the point the camera looks at. */
+    setTarget(target: Vector3): void
+    /** Get a position in front of the camera at the given distance. */
+    getFrontPosition(distance: number): Vector3
+
+    /** Whether gravity affects the camera. */
+    applyGravity: boolean
+    /** The camera's collision ellipsoid dimensions. Default: (0.5, 1, 0.5). */
+    ellipsoid: Vector3
+    /** Whether the camera checks for mesh collisions when moving. */
+    checkCollisions: boolean
+
+    /** Key codes for forward movement. Push codes to enable built-in keyboard input. */
+    keysUp: number[]
+    /** Key codes for backward movement. */
+    keysDown: number[]
+    /** Key codes for left movement. */
+    keysLeft: number[]
+    /** Key codes for right movement. */
+    keysRight: number[]
+    /** Key codes for upward movement. */
+    keysUpward: number[]
+    /** Key codes for downward movement. */
+    keysDownward: number[]
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +446,142 @@ declare class Scene {
     /** The scene gravity vector. */
     gravity: Vector3
 }
+
+// ---------------------------------------------------------------------------
+// Math
+// ---------------------------------------------------------------------------
+
+/**
+ * The global `Math` object — all standard JavaScript math functions and
+ * constants, plus extra game-development helpers.
+ */
+interface Math {
+    // -- Constants ------------------------------------------------------------
+
+    /** The ratio of a circle's circumference to its diameter (~3.14159). */
+    readonly PI: number
+    /** Euler's number (~2.71828). */
+    readonly E: number
+    readonly LN2: number
+    readonly LN10: number
+    readonly LOG2E: number
+    readonly LOG10E: number
+    /** Square root of 2 (~1.41421). */
+    readonly SQRT2: number
+    readonly SQRT1_2: number
+
+    // -- Rounding -------------------------------------------------------------
+
+    /** Return the absolute value of `x`. */
+    abs(x: number): number
+    /** Return −1, 0, or 1 indicating the sign of `x`. */
+    sign(x: number): number
+    /** Round down to the nearest integer. */
+    floor(x: number): number
+    /** Round up to the nearest integer. */
+    ceil(x: number): number
+    /** Round to the nearest integer. */
+    round(x: number): number
+    /** Truncate the decimal part (round toward zero). */
+    trunc(x: number): number
+    /** Return the 32-bit integer representation of `x`. */
+    fround(x: number): number
+
+    // -- Min / Max ------------------------------------------------------------
+
+    /** Return the smallest of the given values. */
+    min(...values: number[]): number
+    /** Return the largest of the given values. */
+    max(...values: number[]): number
+
+    // -- Power & Roots --------------------------------------------------------
+
+    /** Return the square root of `x`. */
+    sqrt(x: number): number
+    /** Return the cube root of `x`. */
+    cbrt(x: number): number
+    /** Return `base` raised to the power `exponent`. */
+    pow(base: number, exponent: number): number
+    /** Return the square root of the sum of squares of the arguments. */
+    hypot(...values: number[]): number
+    /** Return e^x. */
+    exp(x: number): number
+    /** Return e^x − 1. */
+    expm1(x: number): number
+    /** Return the natural logarithm of `x`. */
+    log(x: number): number
+    /** Return the base-2 logarithm of `x`. */
+    log2(x: number): number
+    /** Return the base-10 logarithm of `x`. */
+    log10(x: number): number
+    /** Return the natural logarithm of 1 + `x`. */
+    log1p(x: number): number
+
+    // -- Trigonometry ---------------------------------------------------------
+
+    /** Return the sine of `x` (radians). */
+    sin(x: number): number
+    /** Return the cosine of `x` (radians). */
+    cos(x: number): number
+    /** Return the tangent of `x` (radians). */
+    tan(x: number): number
+    /** Return the arcsine (in radians) of `x`. */
+    asin(x: number): number
+    /** Return the arccosine (in radians) of `x`. */
+    acos(x: number): number
+    /** Return the arctangent (in radians) of `x`. */
+    atan(x: number): number
+    /** Return the angle (in radians) from the X axis to the point (x, y). */
+    atan2(y: number, x: number): number
+    /** Return the hyperbolic sine of `x`. */
+    sinh(x: number): number
+    /** Return the hyperbolic cosine of `x`. */
+    cosh(x: number): number
+    /** Return the hyperbolic tangent of `x`. */
+    tanh(x: number): number
+    /** Return the inverse hyperbolic sine of `x`. */
+    asinh(x: number): number
+    /** Return the inverse hyperbolic cosine of `x`. */
+    acosh(x: number): number
+    /** Return the inverse hyperbolic tangent of `x`. */
+    atanh(x: number): number
+
+    // -- Random ---------------------------------------------------------------
+
+    /** Return a pseudo-random number in [0, 1). */
+    random(): number
+
+    // -- Game-dev helpers -----------------------------------------------------
+
+    /** Clamp `value` so it is no smaller than `min` and no larger than `max`. */
+    clamp(value: number, min: number, max: number): number
+    /** Linearly interpolate between `a` and `b` by `t` (0–1). */
+    lerp(a: number, b: number, t: number): number
+    /** Return the interpolation factor (0–1) of `value` between `a` and `b`. */
+    inverseLerp(a: number, b: number, value: number): number
+    /** Smooth Hermite interpolation between 0 and 1 when `edge0 < x < edge1`. */
+    smoothstep(edge0: number, edge1: number, x: number): number
+    /** Convert degrees to radians. */
+    degToRad(degrees: number): number
+    /** Convert radians to degrees. */
+    radToDeg(radians: number): number
+    /** Remap `value` from range [inMin, inMax] to [outMin, outMax]. */
+    remap(
+        value: number,
+        inMin: number,
+        inMax: number,
+        outMin: number,
+        outMax: number
+    ): number
+    /** Return a random number in [min, max). */
+    randomRange(min: number, max: number): number
+    /** Move `current` towards `target` by at most `maxDelta`. */
+    moveTowards(current: number, target: number, maxDelta: number): number
+    /** Ping-pong `t` between 0 and `length`. */
+    pingPong(t: number, length: number): number
+}
+
+declare const Math: Math
 
 // ---------------------------------------------------------------------------
 // Utility

@@ -1,4 +1,4 @@
-import { Scene, Node, Mesh, TransformNode } from 'babylonjs'
+import { Scene, Node, Mesh, TransformNode, UniversalCamera } from 'babylonjs'
 import { InputManager } from './InputManager'
 import { pushLog } from './consoleStore'
 
@@ -23,6 +23,9 @@ export class Script {
 
     /** Keyboard and mouse input state. */
     input!: InputManager
+
+    /** The active runtime camera. */
+    camera!: UniversalCamera
 
     // -- Lifecycle (overridden by user scripts) -------------------------------
 

@@ -29,6 +29,7 @@
     "ai": "^6.0.85",
     "babylonjs": "^8.47.0",
     "corvu": "^0.7.2",
+    "marked": "^17.0.2",
     "monaco-editor": "^0.55.1",
     "shadcn-solid": "^0.7.7",
     "solid-heroicons": "^3.2.4",

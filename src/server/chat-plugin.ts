@@ -1,7 +1,12 @@
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
 import { createAzure } from '@ai-sdk/azure'
-import { streamText, convertToModelMessages, jsonSchema, type UIMessage } from 'ai'
+import {
+    streamText,
+    convertToModelMessages,
+    jsonSchema,
+    type UIMessage,
+} from 'ai'
 import { Readable } from 'node:stream'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -15,12 +20,12 @@ function buildSystemPrompt(projectRoot: string): string {
         'utf-8'
     )
 
-    return `You are the AI assistant for Slop Engine, a web-based 3D scene editor built with BabylonJS, Havok Physics, and Solid.js.
+    return `You are Hippo - the AI assistant for Slop Engine, a web-based 3D scene editor.
 
 ## Your Capabilities
 
 - Help users write scripts that control 3D objects in their scene
-- Explain the scripting API, BabylonJS concepts, and game-dev patterns
+- Explain the scripting API, and game-dev patterns
 - Create and update script files using the create_script tool
 - Help debug and improve existing scripts
 - Answer general questions about the editor
@@ -44,7 +49,7 @@ When creating scripts, use the create_script tool. Scripts follow these rules:
 ### Available Properties (on \`this\`)
 
 - \`this.node\` — The TransformNode this script is attached to
-- \`this.scene\` — The BabylonJS Scene
+- \`this.scene\` — The Slop Engine Scene
 - \`this.deltaTime\` — Seconds since last frame
 - \`this.time\` — Seconds since play started
 - \`this.input\` — Keyboard/mouse input state
@@ -54,22 +59,6 @@ When creating scripts, use the create_script tool. Scripts follow these rules:
 - \`this.findNode(name)\` — Find a scene node by name
 - \`this.findMesh(name)\` — Find a mesh by name
 - \`this.log(...args)\` — Log to the editor's console panel
-
-### Quick Example
-
-\`\`\`typescript
-export default class extends Script {
-    speed = 2
-
-    start() {
-        this.log('Spinning', this.node.name)
-    }
-
-    update() {
-        this.node.rotation.y += this.speed * this.deltaTime
-    }
-}
-\`\`\`
 
 ## Full Scripting API Reference
 
@@ -127,8 +116,6 @@ export function chatApiPlugin(): Plugin {
                 apiKey: env.AZURE_API_KEY,
             })
 
-            const systemPrompt = buildSystemPrompt(server.config.root)
-
             server.middlewares.use('/api/chat', async (req, res) => {
                 if (req.method !== 'POST') {
                     res.statusCode = 405
@@ -149,14 +136,13 @@ export function chatApiPlugin(): Plugin {
                         messages: UIMessage[]
                     }
 
-                    const modelMessages =
-                        await convertToModelMessages(messages)
+                    const modelMessages = await convertToModelMessages(messages)
 
                     const result = streamText({
                         model: azure(
                             env.AZURE_DEPLOYMENT_NAME ?? 'gpt-4o-mini'
                         ),
-                        system: systemPrompt,
+                        system: buildSystemPrompt(server.config.root),
                         tools: {
                             create_script: createScriptTool,
                         },

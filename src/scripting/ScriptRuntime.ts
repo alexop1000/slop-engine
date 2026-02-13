@@ -2,6 +2,7 @@ import {
     Scene,
     Node,
     TransformNode,
+    UniversalCamera,
     Vector3,
     Color3,
     Color4,
@@ -28,6 +29,42 @@ interface ActiveScript {
 }
 
 /**
+ * Extended Math object with extra game-dev helpers.
+ * Passed into the script sandbox as `Math`.
+ */
+const SlopMath: Record<string, unknown> = {
+    ...Math,
+    clamp: (value: number, min: number, max: number) =>
+        Math.min(Math.max(value, min), max),
+    lerp: (a: number, b: number, t: number) => a + (b - a) * t,
+    inverseLerp: (a: number, b: number, value: number) =>
+        (value - a) / (b - a),
+    smoothstep: (edge0: number, edge1: number, x: number) => {
+        const t = Math.min(Math.max((x - edge0) / (edge1 - edge0), 0), 1)
+        return t * t * (3 - 2 * t)
+    },
+    degToRad: (degrees: number) => degrees * (Math.PI / 180),
+    radToDeg: (radians: number) => radians * (180 / Math.PI),
+    remap: (
+        value: number,
+        inMin: number,
+        inMax: number,
+        outMin: number,
+        outMax: number
+    ) => outMin + ((value - inMin) / (inMax - inMin)) * (outMax - outMin),
+    randomRange: (min: number, max: number) =>
+        min + Math.random() * (max - min),
+    moveTowards: (current: number, target: number, maxDelta: number) => {
+        if (Math.abs(target - current) <= maxDelta) return target
+        return current + Math.sign(target - current) * maxDelta
+    },
+    pingPong: (t: number, length: number) => {
+        const mod = t % (length * 2)
+        return length - Math.abs(mod - length)
+    },
+}
+
+/**
  * Compiles user TypeScript source to a Script subclass constructor.
  *
  * The compiled code runs inside a `new Function()` with a controlled
@@ -48,6 +85,7 @@ function compileScript(tsSource: string): new () => Script {
         'Color3',
         'Color4',
         'Quaternion',
+        'Math',
         'vec3',
         'rgb',
         `
@@ -65,6 +103,7 @@ function compileScript(tsSource: string): new () => Script {
         Color3,
         Color4,
         Quaternion,
+        SlopMath,
         // Utility shortcuts
         (x: number, y: number, z: number) => new Vector3(x, y, z),
         (r: number, g: number, b: number) => new Color3(r, g, b),
@@ -134,6 +173,8 @@ export class ScriptRuntime {
                     instance.node = node as TransformNode
                     instance.scene = scene
                     instance.input = this._input
+                    instance.camera =
+                        scene.activeCamera as UniversalCamera
                     instance.deltaTime = 0
                     instance.time = 0
 

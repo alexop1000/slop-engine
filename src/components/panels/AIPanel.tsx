@@ -1,6 +1,14 @@
 import { useChat } from '@kodehort/ai-sdk-solid'
-import { createSignal, For, Show, createEffect, onMount, untrack } from 'solid-js'
+import {
+    createSignal,
+    For,
+    Show,
+    createEffect,
+    onMount,
+    untrack,
+} from 'solid-js'
 import { makePersisted } from '@solid-primitives/storage'
+import { marked, type Token, type Tokens, type TokensList } from 'marked'
 import { Button } from '../ui'
 import { Spinner } from '../ui/Spinner'
 import {
@@ -14,6 +22,8 @@ import {
     formatSessionDate,
 } from '../../chatHistoryStore'
 import { getAssetStore, setBlob } from '../../assetStore'
+
+marked.setOptions({ breaks: true, gfm: true })
 
 // ── Tool call types (AI SDK v6 UIToolInvocation format) ─────────────
 
@@ -34,77 +44,43 @@ function getToolNameFromPart(part: ToolUIPart): string {
     return part.type.replace(/^tool-/, '')
 }
 
-// ── Markdown-ish content parser ──────────────────────────────────────
+// ── Markdown content parser (via marked) ────────────────────────────
 
 type ContentPart =
-    | { kind: 'text'; text: string }
+    | { kind: 'html'; html: string }
     | { kind: 'code'; lang: string; code: string }
 
-/** Split a string on fenced code blocks (```lang … ```) */
+/** Tokenize markdown, extracting code blocks for interactive rendering */
 function parseContent(raw: string): ContentPart[] {
-    const parts: ContentPart[] = []
-    const regex = /```(\w*)\n([\s\S]*?)```/g
-    let lastIdx = 0
-    let match: RegExpExecArray | null
+    const tokensList = marked.lexer(raw)
+    const result: ContentPart[] = []
+    let pending: Token[] = []
 
-    while ((match = regex.exec(raw)) !== null) {
-        if (match.index > lastIdx) {
-            parts.push({ kind: 'text', text: raw.slice(lastIdx, match.index) })
+    const flushPending = () => {
+        if (pending.length > 0) {
+            const list = pending as unknown as TokensList
+            list.links = tokensList.links
+            result.push({ kind: 'html', html: marked.parser(list) })
+            pending = []
         }
-        parts.push({
-            kind: 'code',
-            lang: match[1] || 'plaintext',
-            code: match[2].replace(/\n$/, ''),
-        })
-        lastIdx = match.index + match[0].length
     }
 
-    if (lastIdx < raw.length) {
-        parts.push({ kind: 'text', text: raw.slice(lastIdx) })
-    }
-    return parts
-}
-
-// ── Inline code parser ───────────────────────────────────────────────
-
-/** Render a text string, replacing `inline code` with styled <code> spans */
-function InlineText(props: Readonly<{ text: string }>) {
-    const segments = () => {
-        const parts: { isCode: boolean; text: string }[] = []
-        const regex = /`([^`]+)`/g
-        let lastIdx = 0
-        let match: RegExpExecArray | null
-        const src = props.text
-
-        while ((match = regex.exec(src)) !== null) {
-            if (match.index > lastIdx) {
-                parts.push({
-                    isCode: false,
-                    text: src.slice(lastIdx, match.index),
-                })
-            }
-            parts.push({ isCode: true, text: match[1] })
-            lastIdx = match.index + match[0].length
+    for (const token of tokensList) {
+        if (token.type === 'code') {
+            flushPending()
+            const codeToken = token as Tokens.Code
+            result.push({
+                kind: 'code',
+                lang: codeToken.lang || 'plaintext',
+                code: codeToken.text,
+            })
+        } else {
+            pending.push(token)
         }
-        if (lastIdx < src.length) {
-            parts.push({ isCode: false, text: src.slice(lastIdx) })
-        }
-        return parts
     }
+    flushPending()
 
-    return (
-        <For each={segments()}>
-            {(seg) =>
-                seg.isCode ? (
-                    <code class="bg-gray-700 text-blue-300 rounded px-1 py-0.5 text-xs font-mono">
-                        {seg.text}
-                    </code>
-                ) : (
-                    <span>{seg.text}</span>
-                )
-            }
-        </For>
-    )
+    return result
 }
 
 // ── Code block component ─────────────────────────────────────────────
@@ -154,8 +130,7 @@ function ToolCallIndicator(props: Readonly<{ part: ToolUIPart }>) {
     const label = () => {
         if (toolName() === 'create_script') {
             const path = (props.part.input as { path?: string })?.path
-            if (isError())
-                return `Failed to create ${path ?? 'script'}`
+            if (isError()) return `Failed to create ${path ?? 'script'}`
             if (isDone()) return `Created ${path ?? 'script'}`
             return `Creating ${path ?? 'script'}…`
         }
@@ -169,8 +144,8 @@ function ToolCallIndicator(props: Readonly<{ part: ToolUIPart }>) {
                 isError()
                     ? 'bg-red-950/40 border-red-800/50 text-red-400'
                     : isDone()
-                      ? 'bg-green-950/40 border-green-800/50 text-green-400'
-                      : 'bg-gray-900 border-gray-700 text-gray-400'
+                    ? 'bg-green-950/40 border-green-800/50 text-green-400'
+                    : 'bg-gray-900 border-gray-700 text-gray-400'
             }`}
         >
             <Show when={isPending()}>
@@ -238,9 +213,10 @@ function ChatMessage(
                             part.kind === 'code' ? (
                                 <CodeBlock lang={part.lang} code={part.code} />
                             ) : (
-                                <div class="whitespace-pre-wrap wrap-break-word leading-relaxed">
-                                    <InlineText text={part.text} />
-                                </div>
+                                <div
+                                    class="md-content"
+                                    innerHTML={part.html}
+                                />
                             )
                         }
                     </For>
@@ -266,9 +242,7 @@ function HistoryItem(
     return (
         <div
             class={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm transition-colors ${
-                props.isActive
-                    ? 'bg-gray-700/70'
-                    : 'hover:bg-gray-800/60'
+                props.isActive ? 'bg-gray-700/70' : 'hover:bg-gray-800/60'
             }`}
             onClick={props.onSelect}
         >
@@ -372,18 +346,18 @@ export default function AIPanel() {
         inputRef?.focus()
     })
 
-    // Auto-save after streaming completes
-    createEffect((prev: string | undefined) => {
-        const status = chat.status
+    // Auto-save after working completes
+    createEffect((prev: boolean | undefined) => {
+        const working = isWorking()
         const id = activeChatId()
         const msgCount = chat.messages.length
 
-        // Save when streaming just finished (status went from 'streaming' to something else)
-        if (prev === 'streaming' && status !== 'streaming' && id && msgCount > 0) {
+        // Save when working just finished (was working, now idle)
+        if (prev === true && !working && id && msgCount > 0) {
             saveCurrentChat()
         }
 
-        return status
+        return working
     })
 
     // Auto-scroll when messages update
@@ -413,9 +387,7 @@ export default function AIPanel() {
         let parentPath = ''
         for (let i = 0; i < parts.length - 1; i++) {
             const dirName = parts[i]
-            const dirPath = parentPath
-                ? `${parentPath}/${dirName}`
-                : dirName
+            const dirPath = parentPath ? `${parentPath}/${dirName}` : dirName
             if (!store.findNode(store.tree(), dirPath)) {
                 store.addNode(parentPath, dirName, 'folder')
             }
@@ -528,10 +500,36 @@ export default function AIPanel() {
         }
     }
 
+    // Derived: true when streaming OR executing tool calls
+    const hasPendingToolCalls = () => {
+        const msgs = chat.messages
+        for (let i = msgs.length - 1; i >= 0; i--) {
+            const msg = msgs[i]
+            if (msg.role !== 'assistant') continue
+            for (const part of msg.parts) {
+                if (
+                    isToolPart(part) &&
+                    (part as unknown as ToolUIPart).state !==
+                        'output-available' &&
+                    (part as unknown as ToolUIPart).state !== 'output-error'
+                ) {
+                    return true
+                }
+            }
+            break // only check the last assistant message
+        }
+        return false
+    }
+
+    const isWorking = () =>
+        chat.status === 'streaming' ||
+        chat.status === 'submitted' ||
+        hasPendingToolCalls()
+
     const handleSubmit = async (e: Event) => {
         e.preventDefault()
         const content = input().trim()
-        if (!content || chat.status === 'streaming') return
+        if (!content || isWorking()) return
 
         setInput('')
         await chat.sendMessage({ text: content })
@@ -666,9 +664,7 @@ export default function AIPanel() {
                                         d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"
                                     />
                                 </svg>
-                                <span class="text-xs">
-                                    Ask the AI anything
-                                </span>
+                                <span class="text-xs">Ask the AI anything</span>
                             </div>
                         }
                     >
@@ -686,12 +682,17 @@ export default function AIPanel() {
                             )}
                         </For>
 
-                        {/* Streaming indicator */}
-                        <Show when={chat.status === 'streaming'}>
+                        {/* Working indicator (streaming or tool execution) */}
+                        <Show when={isWorking()}>
                             <div class="flex justify-start mb-3">
                                 <div class="flex items-center gap-2 text-gray-400 text-xs px-3 py-1">
                                     <Spinner size="xs" />
-                                    <span>Generating…</span>
+                                    <span>
+                                        {hasPendingToolCalls() &&
+                                        chat.status !== 'streaming'
+                                            ? 'Running tools…'
+                                            : 'Generating…'}
+                                    </span>
                                 </div>
                             </div>
                         </Show>
@@ -725,10 +726,10 @@ export default function AIPanel() {
                         value={input()}
                         onInput={(e) => setInput(e.currentTarget.value)}
                         onKeyDown={handleKeyDown}
-                        disabled={chat.status === 'streaming'}
+                        disabled={isWorking()}
                     />
                     <Show
-                        when={chat.status !== 'streaming'}
+                        when={!isWorking()}
                         fallback={
                             <Button
                                 variant="danger"

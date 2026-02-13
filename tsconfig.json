@@ -16,5 +16,6 @@
     // Type Checking & Safety
     "strict": true,
     "types": ["vite/client", "babylonjs"]
-  }
+  },
+  "exclude": ["src/scripting/api.d.ts"]
 }

@@ -8,8 +8,25 @@ import {
     StandardMaterial,
     TransformNode,
 } from 'babylonjs'
-import { Accessor, Setter, Show, Switch, Match, For, createSignal } from 'solid-js'
-import { Checkbox, Collapsible, Color3Input, Input, Vector3Input, Button, Select } from '../ui'
+import {
+    Accessor,
+    Setter,
+    Show,
+    Switch,
+    Match,
+    For,
+    createSignal,
+    createEffect,
+} from 'solid-js'
+import {
+    Checkbox,
+    Collapsible,
+    Color3Input,
+    Input,
+    Vector3Input,
+    Button,
+    Select,
+} from '../ui'
 import { openScriptFile } from '../../scriptEditorStore'
 
 const fmt = (v: number | undefined) => v?.toFixed(3)
@@ -195,6 +212,16 @@ function ScriptProperties(
         return props.scriptAssets().filter((p) => !attached.has(p))
     }
 
+    // Auto-select when there's only one available script
+    createEffect(() => {
+        const avail = availableScripts()
+        if (avail.length === 1) {
+            setAddPath(avail[0])
+        } else if (!avail.includes(addPath())) {
+            setAddPath('')
+        }
+    })
+
     const addScript = () => {
         const n = props.node()
         const path = addPath()
@@ -264,7 +291,12 @@ function ScriptProperties(
                         </Button>
                     </div>
                 </Show>
-                <Show when={attachedScripts().length === 0 && availableScripts().length === 0}>
+                <Show
+                    when={
+                        attachedScripts().length === 0 &&
+                        availableScripts().length === 0
+                    }
+                >
                     <p class="text-xs text-gray-500">
                         No script files in assets
                     </p>

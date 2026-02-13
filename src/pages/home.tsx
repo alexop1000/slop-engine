@@ -1,4 +1,10 @@
-import { createSignal, createEffect, createMemo, onMount, untrack } from 'solid-js'
+import {
+    createSignal,
+    createEffect,
+    createMemo,
+    onMount,
+    untrack,
+} from 'solid-js'
 import {
     Engine,
     Scene,
@@ -43,6 +49,7 @@ import {
     setupEditorCamera,
     captureTransformSnapshot,
     restoreTransform,
+    setupRuntimeCamera,
 } from '../scene/EditorScene'
 import { onScriptOpen } from '../scriptEditorStore'
 import { ScriptRuntime } from '../scripting/ScriptRuntime'
@@ -54,9 +61,7 @@ const SCRIPT_EXT = ['.ts', '.tsx', '.js', '.jsx']
 function collectScriptPaths(node: AssetNode): string[] {
     if (node.type === 'file') {
         const lower = node.path.toLowerCase()
-        return SCRIPT_EXT.some((ext) => lower.endsWith(ext))
-            ? [node.path]
-            : []
+        return SCRIPT_EXT.some((ext) => lower.endsWith(ext)) ? [node.path] : []
     }
     const paths: string[] = []
     for (const child of node.children ?? []) {
@@ -310,6 +315,11 @@ export default function Home() {
                                 }
                                 _physicsAggregates.clear()
                                 _transformSnapshots.clear()
+
+                                const canvas = document.getElementById(
+                                    'canvas'
+                                ) as HTMLCanvasElement
+                                setupEditorCamera(s, canvas)
                                 setIsPlaying(false)
                             } else {
                                 clearLogs()
@@ -332,10 +342,13 @@ export default function Home() {
                                     _physicsAggregates.set(mesh, agg)
                                 }
 
-                                // Start scripts after physics
+                                // Set up runtime camera before scripts so
+                                // scripts receive the correct camera reference
                                 const canvas = document.getElementById(
                                     'canvas'
                                 ) as HTMLCanvasElement
+                                setupRuntimeCamera(s, canvas)
+
                                 _scriptRuntime = new ScriptRuntime()
                                 await _scriptRuntime.start(s, canvas)
 

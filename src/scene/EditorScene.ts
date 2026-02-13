@@ -184,11 +184,7 @@ export function setupEditorCamera(
     const existing = scene.cameras.find((c) => c.name === 'camera')
     if (existing) existing.dispose()
 
-    const camera = new UniversalCamera(
-        'camera',
-        new Vector3(0, 5, -20),
-        scene
-    )
+    const camera = new UniversalCamera('camera', new Vector3(0, 5, -20), scene)
     camera.attachControl(canvas, true)
     const normalSpeed = 0.5
     const fastSpeed = 1.5
@@ -208,5 +204,21 @@ export function setupEditorCamera(
             camera.speed = normalSpeed
         }
     })
+    return camera
+}
+
+export function setupRuntimeCamera(
+    scene: Scene,
+    canvas: HTMLCanvasElement
+): UniversalCamera {
+    const existing = scene.cameras.find((c) => c.name === 'camera')
+    if (existing) existing.dispose()
+
+    const camera = new UniversalCamera('camera', new Vector3(0, 5, -20), scene)
+    camera.applyGravity = false
+    scene.activeCamera = camera
+    camera.inputs.clear()
+
+    camera.attachControl(canvas, true)
     return camera
 }

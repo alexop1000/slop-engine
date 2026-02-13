@@ -36,7 +36,6 @@ export default function ConsolePanel() {
     return (
         <div class="flex flex-col h-full">
             <div class="flex items-center justify-between px-1 pb-1 shrink-0">
-                <span class="text-xs text-gray-400">Console</span>
                 <Show when={logs().length > 0}>
                     <Button variant="ghost" size="sm" onClick={clearLogs}>
                         Clear
@@ -60,7 +59,9 @@ export default function ConsolePanel() {
                     <For each={logs()}>
                         {(entry) => (
                             <div
-                                class={`px-2 py-0.5 border-b border-gray-700/50 whitespace-pre-wrap break-all ${levelColors[entry.level]}`}
+                                class={`px-2 py-0.5 border-b border-gray-700/50 whitespace-pre-wrap break-all ${
+                                    levelColors[entry.level]
+                                }`}
                             >
                                 {entry.args.map(formatArg).join(' ')}
                             </div>
