@@ -1,6 +1,6 @@
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
-import { createAzure } from '@ai-sdk/azure'
+import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import {
     streamText,
     convertToModelMessages,
@@ -361,8 +361,7 @@ const readScriptTool = {
         properties: {
             path: {
                 type: 'string',
-                description:
-                    'The script file path (e.g. "scripts/rotate.ts").',
+                description: 'The script file path (e.g. "scripts/rotate.ts").',
             },
         },
         required: ['path'],
@@ -434,9 +433,8 @@ export function chatApiPlugin(): Plugin {
                 ''
             )
 
-            const azure = createAzure({
-                resourceName: env.AZURE_RESOURCE_NAME,
-                apiKey: env.AZURE_API_KEY,
+            const openrouter = createOpenRouter({
+                apiKey: env.OPENROUTER_API_KEY,
             })
 
             server.middlewares.use('/api/chat', async (req, res) => {
@@ -462,9 +460,7 @@ export function chatApiPlugin(): Plugin {
                     const modelMessages = await convertToModelMessages(messages)
 
                     const result = streamText({
-                        model: azure(
-                            env.AZURE_DEPLOYMENT_NAME ?? 'gpt-4o-mini'
-                        ),
+                        model: openrouter.chat(env.OPENROUTER_MODEL ?? 'arcee-ai/arcee-blitz'),
                         system: buildSystemPrompt(server.config.root),
                         tools: {
                             create_script: createScriptTool,

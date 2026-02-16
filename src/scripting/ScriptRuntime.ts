@@ -32,12 +32,16 @@ interface ActiveScript {
  * Extended Math object with extra game-dev helpers.
  * Passed into the script sandbox as `Math`.
  */
-const SlopMath: Record<string, unknown> = {
-    ...Math,
+const SlopMath: Record<string, unknown> = {}
+for (const key of Object.getOwnPropertyNames(Math)) {
+    SlopMath[key] = (Math as any)[key]
+}
+Object.assign(SlopMath, {
     clamp: (value: number, min: number, max: number) =>
         Math.min(Math.max(value, min), max),
     lerp: (a: number, b: number, t: number) => a + (b - a) * t,
-    inverseLerp: (a: number, b: number, value: number) => (value - a) / (b - a),
+    inverseLerp: (a: number, b: number, value: number) =>
+        (value - a) / (b - a),
     smoothstep: (edge0: number, edge1: number, x: number) => {
         const t = Math.min(Math.max((x - edge0) / (edge1 - edge0), 0), 1)
         return t * t * (3 - 2 * t)
@@ -61,7 +65,7 @@ const SlopMath: Record<string, unknown> = {
         const mod = t % (length * 2)
         return length - Math.abs(mod - length)
     },
-}
+})
 
 /**
  * Compiles user TypeScript source to a Script subclass constructor.

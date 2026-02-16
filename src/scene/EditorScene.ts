@@ -47,38 +47,6 @@ export function createDefaultScene(
 
     void new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, scene)
 
-    const createRedMaterial = () => {
-        const name = `red-material-${Math.random().toString(36).slice(2, 9)}`
-        const redMaterial = new StandardMaterial(name, scene)
-        redMaterial.diffuseColor = new Color3(1, 0, 0)
-        redMaterial.specularColor = new Color3(1, 1, 1)
-        redMaterial.specularPower = 100
-        return redMaterial
-    }
-
-    const createGreenMaterial = () => {
-        const name = `green-material-${Math.random().toString(36).slice(2, 9)}`
-        const greenMaterial = new StandardMaterial(name, scene)
-        greenMaterial.diffuseColor = new Color3(0, 1, 0)
-        greenMaterial.specularColor = new Color3(1, 1, 1)
-        greenMaterial.specularPower = 100
-        return greenMaterial
-    }
-
-    const box = MeshBuilder.CreateBox('box', { size: 2 }, scene)
-    box.position.y = 3
-    box.metadata = { physicsMass: 1, physicsEnabled: true }
-    const box2 = MeshBuilder.CreateBox('box2', { size: 2 }, scene)
-    box2.position.y = 6
-    box2.metadata = { physicsMass: 1, physicsEnabled: true }
-    box.material = createRedMaterial()
-    box2.material = createRedMaterial()
-
-    const childBox = MeshBuilder.CreateBox('child-box', { size: 1 }, scene)
-    childBox.parent = box2
-    childBox.position.y = 2
-    childBox.material = createGreenMaterial()
-
     return {
         scene,
     }

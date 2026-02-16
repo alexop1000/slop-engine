@@ -25,6 +25,7 @@ import {
     formatSessionDate,
 } from '../../chatHistoryStore'
 import { getAssetStore, getBlob, setBlob, deleteBlob } from '../../assetStore'
+import { openScript, openScriptFile } from '../../scriptEditorStore'
 import {
     addMeshToScene,
     addLightToScene,
@@ -528,6 +529,11 @@ export default function AIPanel(props: Readonly<{
             new Blob([args.content], { type: 'text/plain' })
         )
 
+        // Reload in script editor if this file is currently open
+        if (openScript()?.path === args.path) {
+            await openScriptFile(args.path)
+        }
+
         return `Script created at "${args.path}"`
     }
 
@@ -649,6 +655,10 @@ export default function AIPanel(props: Readonly<{
         }
         const updated = content.replace(args.old_string, args.new_string)
         await setBlob(args.path, new Blob([updated], { type: 'text/plain' }))
+        // Reload in script editor if this file is currently open
+        if (openScript()?.path === args.path) {
+            await openScriptFile(args.path)
+        }
         return `Edited "${args.path}"`
     }
 
