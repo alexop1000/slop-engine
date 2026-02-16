@@ -278,10 +278,6 @@ declare class AbstractMesh extends TransformNode {
     checkCollisions: boolean
     /** Whether this mesh receives shadows. */
     receiveShadows: boolean
-    /** Whether physics simulation is enabled for this mesh. */
-    physicsEnabled: boolean
-    /** The mass of this mesh for physics simulation (0 = static). */
-    physicsMass: number
 }
 
 /** A mesh in the scene (the most common renderable type). */

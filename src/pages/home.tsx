@@ -486,7 +486,12 @@ export default function Home() {
                     minSize={0.05}
                     class="bg-gray-800 p-2 rounded-md"
                 >
-                    <AIPanel />
+                    <AIPanel
+                        scene={scene}
+                        selectedNode={selectedNode}
+                        setSelectedNode={setSelectedNode}
+                        setNodeTick={setNodeTick}
+                    />
                 </Resizable.Panel>
                 <Resizable.Handle
                     class="group basis-3 px-1"
@@ -551,7 +556,7 @@ export default function Home() {
                                     { id: 'assets', label: 'Assets' },
                                 ]}
                                 defaultTab="console"
-                                class="flex flex-col flex-1 min-h-0"
+                                class="flex flex-col h-full min-h-0"
                                 contentClass="flex-1 min-h-0 flex flex-col"
                             >
                                 <TabPanel

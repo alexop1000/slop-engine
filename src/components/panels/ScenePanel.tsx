@@ -6,15 +6,12 @@ import {
     Light,
     Camera,
     TransformNode,
-    MeshBuilder,
-    StandardMaterial,
-    Color3,
-    Vector3,
     PointLight,
     DirectionalLight,
     SpotLight,
     HemisphericLight,
 } from 'babylonjs'
+import { addMeshToScene, addLightToScene, nextName } from '../../scene/SceneOperations'
 import {
     cube,
     sun,
@@ -94,65 +91,10 @@ export default function ScenePanel(
         node: Node | undefined
     } | null>(null)
 
-    let _addCounter = 0
-
     function addMesh(type: string) {
         const scene = props.scene()
         if (!scene) return
-        _addCounter++
-        const label = type[0].toUpperCase() + type.slice(1)
-        const name = `${label}_${_addCounter}`
-        let mesh: Mesh
-        switch (type) {
-            case 'box':
-                mesh = MeshBuilder.CreateBox(name, { size: 1 }, scene)
-                break
-            case 'sphere':
-                mesh = MeshBuilder.CreateSphere(
-                    name,
-                    { diameter: 1, segments: 16 },
-                    scene
-                )
-                break
-            case 'cylinder':
-                mesh = MeshBuilder.CreateCylinder(
-                    name,
-                    { height: 1, diameter: 1 },
-                    scene
-                )
-                break
-            case 'cone':
-                mesh = MeshBuilder.CreateCylinder(
-                    name,
-                    { height: 1, diameterTop: 0, diameterBottom: 1 },
-                    scene
-                )
-                break
-            case 'torus':
-                mesh = MeshBuilder.CreateTorus(
-                    name,
-                    { diameter: 1, thickness: 0.3, tessellation: 24 },
-                    scene
-                )
-                break
-            case 'plane':
-                mesh = MeshBuilder.CreatePlane(name, { size: 1 }, scene)
-                break
-            case 'ground':
-                mesh = MeshBuilder.CreateGround(
-                    name,
-                    { width: 10, height: 10 },
-                    scene
-                )
-                break
-            default:
-                return
-        }
-        const mat = new StandardMaterial(`${name}_mat`, scene)
-        mat.diffuseColor = new Color3(0.6, 0.6, 0.6)
-        mesh.material = mat
-        mesh.metadata = { physicsMass: 1, physicsEnabled: false }
-        if (type !== 'ground' && type !== 'plane') mesh.position.y = 1
+        const mesh = addMeshToScene(scene, { type })
         props.setSelectedNode(mesh)
         props.setNodeTick((t) => t + 1)
         setShowAddMenu(false)
@@ -161,33 +103,7 @@ export default function ScenePanel(
     function addLight(type: string) {
         const scene = props.scene()
         if (!scene) return
-        _addCounter++
-        const label = type[0].toUpperCase() + type.slice(1)
-        const name = `${label}Light_${_addCounter}`
-        let light: Light
-        switch (type) {
-            case 'point':
-                light = new PointLight(name, new Vector3(0, 5, 0), scene)
-                break
-            case 'directional':
-                light = new DirectionalLight(name, new Vector3(0, -1, 0), scene)
-                break
-            case 'spot':
-                light = new SpotLight(
-                    name,
-                    new Vector3(0, 5, 0),
-                    new Vector3(0, -1, 0),
-                    Math.PI / 3,
-                    2,
-                    scene
-                )
-                break
-            case 'hemispheric':
-                light = new HemisphericLight(name, new Vector3(0, 1, 0), scene)
-                break
-            default:
-                return
-        }
+        const light = addLightToScene(scene, { type })
         props.setSelectedNode(light)
         props.setNodeTick((t) => t + 1)
         setShowAddMenu(false)
@@ -206,20 +122,17 @@ export default function ScenePanel(
     function duplicateNode(node: Node) {
         const scene = props.scene()
         if (!scene) return
-        _addCounter++
+        const copyName = nextName(`${node.name}_copy`)
 
         if (node instanceof Mesh) {
-            const clone = node.clone(
-                `${node.name}_copy_${_addCounter}`,
-                node.parent
-            )
+            const clone = node.clone(copyName, node.parent)
             if (clone) {
                 clone.position.x += 1
                 props.setSelectedNode(clone)
             }
         } else if (node instanceof SpotLight) {
             const light = new SpotLight(
-                `${node.name}_copy_${_addCounter}`,
+                copyName,
                 node.position.clone(),
                 node.direction.clone(),
                 node.angle,
@@ -233,7 +146,7 @@ export default function ScenePanel(
             props.setSelectedNode(light)
         } else if (node instanceof PointLight) {
             const light = new PointLight(
-                `${node.name}_copy_${_addCounter}`,
+                copyName,
                 node.position.clone(),
                 scene
             )
@@ -244,7 +157,7 @@ export default function ScenePanel(
             props.setSelectedNode(light)
         } else if (node instanceof DirectionalLight) {
             const light = new DirectionalLight(
-                `${node.name}_copy_${_addCounter}`,
+                copyName,
                 node.direction.clone(),
                 scene
             )
@@ -255,7 +168,7 @@ export default function ScenePanel(
             props.setSelectedNode(light)
         } else if (node instanceof HemisphericLight) {
             const light = new HemisphericLight(
-                `${node.name}_copy_${_addCounter}`,
+                copyName,
                 node.direction.clone(),
                 scene
             )
@@ -265,10 +178,7 @@ export default function ScenePanel(
             light.parent = node.parent
             props.setSelectedNode(light)
         } else if (node instanceof TransformNode) {
-            const clone = node.clone(
-                `${node.name}_copy_${_addCounter}`,
-                node.parent
-            )
+            const clone = node.clone(copyName, node.parent)
             if (clone) {
                 props.setSelectedNode(clone)
             }

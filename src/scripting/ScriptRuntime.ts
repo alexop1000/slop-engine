@@ -1,5 +1,4 @@
 import {
-    AbstractMesh,
     Scene,
     Node,
     TransformNode,
@@ -176,40 +175,6 @@ export class ScriptRuntime {
                     instance.camera = scene.activeCamera as UniversalCamera
                     instance.deltaTime = 0
                     instance.time = 0
-
-                    // Proxy physics metadata as direct properties on
-                    // the node so scripts can use node.physicsEnabled
-                    // and node.physicsMass transparently.
-                    if (
-                        node instanceof AbstractMesh &&
-                        !('physicsEnabled' in node)
-                    ) {
-                        if (!node.metadata) {
-                            node.metadata = {
-                                physicsEnabled: false,
-                                physicsMass: 1,
-                            }
-                        }
-                        Object.defineProperty(node, 'physicsEnabled', {
-                            get() {
-                                return node.metadata?.physicsEnabled ?? false
-                            },
-                            set(v: boolean) {
-                                if (node.metadata)
-                                    node.metadata.physicsEnabled = v
-                            },
-                            configurable: true,
-                        })
-                        Object.defineProperty(node, 'physicsMass', {
-                            get() {
-                                return node.metadata?.physicsMass ?? 1
-                            },
-                            set(v: number) {
-                                if (node.metadata) node.metadata.physicsMass = v
-                            },
-                            configurable: true,
-                        })
-                    }
 
                     this._scripts.push({ instance, node, path })
                 } catch (err) {

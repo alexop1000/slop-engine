@@ -1,5 +1,7 @@
 import { useChat } from '@kodehort/ai-sdk-solid'
 import {
+    type Accessor,
+    type Setter,
     createSignal,
     For,
     Show,
@@ -7,6 +9,7 @@ import {
     onMount,
     untrack,
 } from 'solid-js'
+import type { Scene, Node } from 'babylonjs'
 import { makePersisted } from '@solid-primitives/storage'
 import { marked, type Token, type Tokens, type TokensList } from 'marked'
 import { Button } from '../ui'
@@ -21,7 +24,17 @@ import {
     titleFromMessages,
     formatSessionDate,
 } from '../../chatHistoryStore'
-import { getAssetStore, setBlob } from '../../assetStore'
+import { getAssetStore, getBlob, setBlob, deleteBlob } from '../../assetStore'
+import {
+    addMeshToScene,
+    addLightToScene,
+    updateNodeInScene,
+    deleteNodeFromScene,
+    getSceneSnapshot,
+    type AddMeshOptions,
+    type AddLightOptions,
+    type UpdateNodeOptions,
+} from '../../scene/SceneOperations'
 
 marked.setOptions({ breaks: true, gfm: true })
 
@@ -128,14 +141,82 @@ function ToolCallIndicator(props: Readonly<{ part: ToolUIPart }>) {
     const isPending = () => !isDone()
 
     const label = () => {
-        if (toolName() === 'create_script') {
-            const path = (props.part.input as { path?: string })?.path
-            if (isError()) return `Failed to create ${path ?? 'script'}`
-            if (isDone()) return `Created ${path ?? 'script'}`
-            return `Creating ${path ?? 'script'}…`
+        const name = toolName()
+        const inp = props.part.input as Record<string, unknown> | undefined
+
+        switch (name) {
+            case 'create_script': {
+                const path = inp?.path as string | undefined
+                if (isError()) return `Failed to create ${path ?? 'script'}`
+                if (isDone()) return `Created ${path ?? 'script'}`
+                return `Creating ${path ?? 'script'}…`
+            }
+            case 'get_scene':
+                if (isDone()) return 'Retrieved scene'
+                return 'Reading scene…'
+            case 'add_mesh': {
+                const t = inp?.type as string | undefined
+                if (isError()) return `Failed to add ${t ?? 'mesh'}`
+                if (isDone()) return `Added ${t ?? 'mesh'}`
+                return `Adding ${t ?? 'mesh'}…`
+            }
+            case 'add_light': {
+                const t = inp?.type as string | undefined
+                if (isError()) return `Failed to add ${t ?? 'light'} light`
+                if (isDone()) return `Added ${t ?? 'light'} light`
+                return `Adding ${t ?? 'light'} light…`
+            }
+            case 'update_node': {
+                const n = inp?.name as string | undefined
+                if (isError()) return `Failed to update "${n ?? 'node'}"`
+                if (isDone()) return `Updated "${n ?? 'node'}"`
+                return `Updating "${n ?? 'node'}"…`
+            }
+            case 'delete_node': {
+                const n = inp?.name as string | undefined
+                if (isError()) return `Failed to delete "${n ?? 'node'}"`
+                if (isDone()) return `Deleted "${n ?? 'node'}"`
+                return `Deleting "${n ?? 'node'}"…`
+            }
+            case 'list_scripts':
+                if (isDone()) return 'Listed scripts'
+                return 'Listing scripts…'
+            case 'attach_script': {
+                const s = inp?.script as string | undefined
+                const n = inp?.node as string | undefined
+                if (isError()) return `Failed to attach ${s ?? 'script'}`
+                if (isDone()) return `Attached ${s ?? 'script'} to "${n ?? 'node'}"`
+                return `Attaching ${s ?? 'script'}…`
+            }
+            case 'detach_script': {
+                const s = inp?.script as string | undefined
+                const n = inp?.node as string | undefined
+                if (isError()) return `Failed to detach ${s ?? 'script'}`
+                if (isDone()) return `Detached ${s ?? 'script'} from "${n ?? 'node'}"`
+                return `Detaching ${s ?? 'script'}…`
+            }
+            case 'read_script': {
+                const p = inp?.path as string | undefined
+                if (isError()) return `Failed to read ${p ?? 'script'}`
+                if (isDone()) return `Read ${p ?? 'script'}`
+                return `Reading ${p ?? 'script'}…`
+            }
+            case 'edit_script': {
+                const p = inp?.path as string | undefined
+                if (isError()) return `Failed to edit ${p ?? 'script'}`
+                if (isDone()) return `Edited ${p ?? 'script'}`
+                return `Editing ${p ?? 'script'}…`
+            }
+            case 'delete_script': {
+                const p = inp?.path as string | undefined
+                if (isError()) return `Failed to delete ${p ?? 'script'}`
+                if (isDone()) return `Deleted ${p ?? 'script'}`
+                return `Deleting ${p ?? 'script'}…`
+            }
+            default:
+                if (isDone()) return `Ran ${name}`
+                return `Running ${name}…`
         }
-        if (isDone()) return `Ran ${toolName()}`
-        return `Running ${toolName()}…`
     }
 
     return (
@@ -207,6 +288,9 @@ function ChatMessage(
                         AI
                     </span>
                 </Show>
+                <For each={toolParts()}>
+                    {(part) => <ToolCallIndicator part={part} />}
+                </For>
                 <Show when={hasText()}>
                     <For each={parsed()}>
                         {(part) =>
@@ -221,9 +305,6 @@ function ChatMessage(
                         }
                     </For>
                 </Show>
-                <For each={toolParts()}>
-                    {(part) => <ToolCallIndicator part={part} />}
-                </For>
             </div>
         </div>
     )
@@ -286,7 +367,12 @@ function HistoryItem(
 
 // ── Main AI Panel ────────────────────────────────────────────────────
 
-export default function AIPanel() {
+export default function AIPanel(props: Readonly<{
+    scene: Accessor<Scene | undefined>
+    selectedNode: Accessor<Node | undefined>
+    setSelectedNode: (node: Node | undefined) => void
+    setNodeTick: Setter<number>
+}>) {
     const [input, setInput] = createSignal('')
     const [showHistory, setShowHistory] = createSignal(false)
     const [sessions, setSessions] = createSignal<ChatSession[]>([])
@@ -298,7 +384,44 @@ export default function AIPanel() {
     let scrollContainer: HTMLDivElement | undefined
     let inputRef: HTMLTextAreaElement | undefined
 
-    const chat = useChat()
+    const chat = useChat({
+        sendAutomaticallyWhen: ({ messages }) => {
+            // After all tool outputs are resolved, automatically send
+            // the updated messages back so the AI can respond with text.
+            // But DON'T re-send if the AI already generated text after
+            // the tool calls (that means the round-trip is complete).
+            const last = messages.at(-1)
+            if (!last || last.role !== 'assistant') return false
+
+            const parts = last.parts as Array<{
+                type: string
+                text?: string
+            }>
+            const toolParts = parts.filter((p) =>
+                p.type.startsWith('tool-')
+            ) as unknown as ToolUIPart[]
+            if (toolParts.length === 0) return false
+
+            const allResolved = toolParts.every(
+                (t) =>
+                    t.state === 'output-available' ||
+                    t.state === 'output-error'
+            )
+            if (!allResolved) return false
+
+            // Check if there's text AFTER the last tool part — if so,
+            // the AI already responded and we must not loop
+            const lastToolIdx = parts.reduce(
+                (max, p, i) => (p.type.startsWith('tool-') ? i : max),
+                -1
+            )
+            const hasTextAfterTools = parts
+                .slice(lastToolIdx + 1)
+                .some((p) => p.type === 'text' && (p.text?.length ?? 0) > 0)
+
+            return !hasTextAfterTools
+        },
+    })
 
     // ── Persistence helpers ─────────────────────────────────────────
 
@@ -408,6 +531,192 @@ export default function AIPanel() {
         return `Script created at "${args.path}"`
     }
 
+    const executeGetScene = (): string => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+        return JSON.stringify(getSceneSnapshot(s), null, 2)
+    }
+
+    const executeAddMesh = (args: AddMeshOptions): string => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+        const mesh = addMeshToScene(s, args)
+        props.setSelectedNode(mesh)
+        props.setNodeTick((t) => t + 1)
+        return `Created ${args.type} mesh "${mesh.name}"`
+    }
+
+    const executeAddLight = (args: AddLightOptions): string => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+        const light = addLightToScene(s, args)
+        props.setSelectedNode(light)
+        props.setNodeTick((t) => t + 1)
+        return `Created ${args.type} light "${light.name}"`
+    }
+
+    const executeUpdateNode = (args: UpdateNodeOptions): string => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+        updateNodeInScene(s, args)
+        props.setNodeTick((t) => t + 1)
+        const fields = Object.keys(args).filter((k) => k !== 'name').join(', ')
+        return `Updated "${args.name}" (${fields})`
+    }
+
+    const executeDeleteNode = (args: { name: string }): string => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+        const node = s.getNodeByName(args.name)
+        if (props.selectedNode() === node) {
+            props.setSelectedNode(undefined)
+        }
+        deleteNodeFromScene(s, args.name)
+        props.setNodeTick((t) => t + 1)
+        return `Deleted node "${args.name}"`
+    }
+
+    const executeListScripts = (): string => {
+        const store = getAssetStore()
+        const SCRIPT_EXT = ['.ts', '.tsx', '.js', '.jsx']
+        const allFiles = store.collectFilePaths(store.tree())
+        const scripts = allFiles.filter((p) =>
+            SCRIPT_EXT.some((ext) => p.toLowerCase().endsWith(ext))
+        )
+        if (scripts.length === 0) return 'No scripts found in asset store.'
+        return JSON.stringify(scripts)
+    }
+
+    const executeAttachScript = (args: {
+        node: string
+        script: string
+    }): string => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+        const node = s.getNodeByName(args.node)
+        if (!node) throw new Error(`Node "${args.node}" not found`)
+        if (!node.metadata) node.metadata = {}
+        const meta = node.metadata as Record<string, unknown>
+        const scripts = (meta.scripts as string[] | undefined) ?? []
+        if (scripts.includes(args.script)) {
+            return `"${args.script}" is already attached to "${args.node}"`
+        }
+        meta.scripts = [...scripts, args.script]
+        props.setNodeTick((t) => t + 1)
+        return `Attached "${args.script}" to "${args.node}"`
+    }
+
+    const executeDetachScript = (args: {
+        node: string
+        script: string
+    }): string => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+        const node = s.getNodeByName(args.node)
+        if (!node) throw new Error(`Node "${args.node}" not found`)
+        const meta = node.metadata as { scripts?: string[] } | undefined
+        const scripts = meta?.scripts ?? []
+        if (!scripts.includes(args.script)) {
+            throw new Error(
+                `"${args.script}" is not attached to "${args.node}"`
+            )
+        }
+        ;(node.metadata as Record<string, unknown>).scripts = scripts.filter(
+            (s) => s !== args.script
+        )
+        props.setNodeTick((t) => t + 1)
+        return `Detached "${args.script}" from "${args.node}"`
+    }
+
+    const executeReadScript = async (args: { path: string }): Promise<string> => {
+        const blob = await getBlob(args.path)
+        if (!blob) throw new Error(`Script "${args.path}" not found`)
+        return await blob.text()
+    }
+
+    const executeEditScript = async (args: {
+        path: string
+        old_string: string
+        new_string: string
+    }): Promise<string> => {
+        const blob = await getBlob(args.path)
+        if (!blob) throw new Error(`Script "${args.path}" not found`)
+        const content = await blob.text()
+        if (!content.includes(args.old_string)) {
+            throw new Error(
+                `Could not find the specified text in "${args.path}"`
+            )
+        }
+        const updated = content.replace(args.old_string, args.new_string)
+        await setBlob(args.path, new Blob([updated], { type: 'text/plain' }))
+        return `Edited "${args.path}"`
+    }
+
+    const executeDeleteScript = async (args: {
+        path: string
+    }): Promise<string> => {
+        // Detach from all nodes that reference this script
+        const s = props.scene()
+        if (s) {
+            const allNodes = [
+                ...s.meshes,
+                ...s.lights,
+                ...s.cameras,
+                ...s.transformNodes,
+            ]
+            for (const node of allNodes) {
+                const meta = node.metadata as { scripts?: string[] } | undefined
+                if (meta?.scripts?.includes(args.path)) {
+                    meta.scripts = meta.scripts.filter((p) => p !== args.path)
+                }
+            }
+        }
+
+        // Delete blob and asset tree node
+        await deleteBlob(args.path)
+        const store = getAssetStore()
+        if (store.findNode(store.tree(), args.path)) {
+            store.deleteNode(args.path)
+        }
+
+        props.setNodeTick((t) => t + 1)
+        return `Deleted script "${args.path}"`
+    }
+
+    const executeTool = async (
+        toolName: string,
+        input: unknown
+    ): Promise<string> => {
+        switch (toolName) {
+            case 'create_script':
+                return executeCreateScript(input as { path: string; content: string })
+            case 'get_scene':
+                return executeGetScene()
+            case 'add_mesh':
+                return executeAddMesh(input as AddMeshOptions)
+            case 'add_light':
+                return executeAddLight(input as AddLightOptions)
+            case 'update_node':
+                return executeUpdateNode(input as UpdateNodeOptions)
+            case 'delete_node':
+                return executeDeleteNode(input as { name: string })
+            case 'list_scripts':
+                return executeListScripts()
+            case 'attach_script':
+                return executeAttachScript(input as { node: string; script: string })
+            case 'detach_script':
+                return executeDetachScript(input as { node: string; script: string })
+            case 'read_script':
+                return executeReadScript(input as { path: string })
+            case 'edit_script':
+                return executeEditScript(input as { path: string; old_string: string; new_string: string })
+            case 'delete_script':
+                return executeDeleteScript(input as { path: string })
+            default:
+                throw new Error(`Unknown tool: ${toolName}`)
+        }
+    }
+
     // Watch for tool calls in messages and execute them
     createEffect(() => {
         for (const msg of chat.messages) {
@@ -420,33 +729,27 @@ export default function AIPanel() {
                 if (handledToolCalls.has(toolPart.toolCallId)) continue
                 handledToolCalls.add(toolPart.toolCallId)
 
-                const toolName = getToolNameFromPart(toolPart)
+                const name = getToolNameFromPart(toolPart)
 
-                if (toolName === 'create_script') {
-                    const args = toolPart.input as {
-                        path: string
-                        content: string
-                    }
-                    executeCreateScript(args)
-                        .then((result) => {
-                            chat.addToolOutput({
-                                tool: toolName,
-                                toolCallId: toolPart.toolCallId,
-                                output: result,
-                            })
+                executeTool(name, (toolPart.input as Record<string, unknown>) ?? {})
+                    .then((result) => {
+                        chat.addToolOutput({
+                            tool: name,
+                            toolCallId: toolPart.toolCallId,
+                            output: result,
                         })
-                        .catch((err) => {
-                            chat.addToolOutput({
-                                tool: toolName,
-                                toolCallId: toolPart.toolCallId,
-                                state: 'output-error' as const,
-                                errorText:
-                                    err instanceof Error
-                                        ? err.message
-                                        : 'Unknown error',
-                            })
+                    })
+                    .catch((err) => {
+                        chat.addToolOutput({
+                            tool: name,
+                            toolCallId: toolPart.toolCallId,
+                            state: 'output-error' as const,
+                            errorText:
+                                err instanceof Error
+                                    ? err.message
+                                    : 'Unknown error',
                         })
-                }
+                    })
             }
         }
     })
