@@ -22,7 +22,6 @@ export interface TransformSnapshot {
 
 export interface EditorSceneResult {
     scene: Scene
-    dynamicPhysicsMeshNames: string[]
 }
 
 export function createDefaultScene(
@@ -68,10 +67,10 @@ export function createDefaultScene(
 
     const box = MeshBuilder.CreateBox('box', { size: 2 }, scene)
     box.position.y = 3
-    box.metadata = { physicsMass: 1 }
+    box.metadata = { physicsMass: 1, physicsEnabled: true }
     const box2 = MeshBuilder.CreateBox('box2', { size: 2 }, scene)
     box2.position.y = 6
-    box2.metadata = { physicsMass: 1 }
+    box2.metadata = { physicsMass: 1, physicsEnabled: true }
     box.material = createRedMaterial()
     box2.material = createRedMaterial()
 
@@ -82,7 +81,6 @@ export function createDefaultScene(
 
     return {
         scene,
-        dynamicPhysicsMeshNames: ['box', 'box2'],
     }
 }
 
@@ -141,19 +139,7 @@ export async function loadSceneFromJson(
             )
         }
 
-        const dynamicPhysicsMeshNames: string[] = []
-        for (const mesh of scene.meshes) {
-            if (mesh === ground) continue
-            const meta = mesh.metadata as { physicsMass?: number } | undefined
-            if (meta?.physicsMass !== undefined && meta.physicsMass > 0) {
-                dynamicPhysicsMeshNames.push(mesh.name)
-            }
-        }
-        if (dynamicPhysicsMeshNames.length === 0) {
-            dynamicPhysicsMeshNames.push('box', 'box2')
-        }
-
-        return { scene, dynamicPhysicsMeshNames }
+        return { scene }
     } finally {
         URL.revokeObjectURL(url)
     }

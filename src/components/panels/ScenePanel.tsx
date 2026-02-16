@@ -1,6 +1,29 @@
 import { Accessor, Setter, Show, createSignal } from 'solid-js'
-import { Scene, Node, Mesh, Light, Camera, TransformNode, MeshBuilder, StandardMaterial, Color3, Vector3, PointLight, DirectionalLight, SpotLight, HemisphericLight } from 'babylonjs'
-import { cube, sun, videoCamera, cubeTransparent, magnifyingGlass, xMark, plus } from 'solid-heroicons/outline'
+import {
+    Scene,
+    Node,
+    Mesh,
+    Light,
+    Camera,
+    TransformNode,
+    MeshBuilder,
+    StandardMaterial,
+    Color3,
+    Vector3,
+    PointLight,
+    DirectionalLight,
+    SpotLight,
+    HemisphericLight,
+} from 'babylonjs'
+import {
+    cube,
+    sun,
+    videoCamera,
+    cubeTransparent,
+    magnifyingGlass,
+    xMark,
+    plus,
+} from 'solid-heroicons/outline'
 import { Icon } from 'solid-heroicons'
 import { TreeView, TreeNode, TreeMoveEvent, ContextMenu } from '../ui'
 import type { TreeContextMenuEvent, ContextMenuItem } from '../ui'
@@ -15,17 +38,29 @@ function getNodeIcon(node: Node) {
 function filterTree<T>(nodes: TreeNode<T>[], query: string): TreeNode<T>[] {
     const q = query.toLowerCase()
     function walk(node: TreeNode<T>): TreeNode<T> | null {
-        const childMatches = node.children?.map(walk).filter(Boolean) as TreeNode<T>[] | undefined
+        const childMatches = node.children?.map(walk).filter(Boolean) as
+            | TreeNode<T>[]
+            | undefined
         const selfMatches = node.label.toLowerCase().includes(q)
         if (selfMatches || (childMatches && childMatches.length > 0)) {
-            return { ...node, children: childMatches && childMatches.length > 0 ? childMatches : node.children }
+            return {
+                ...node,
+                children:
+                    childMatches && childMatches.length > 0
+                        ? childMatches
+                        : node.children,
+            }
         }
         return null
     }
     return nodes.map(walk).filter(Boolean) as TreeNode<T>[]
 }
 
-function sortByOrder(nodes: Node[], order: Map<string, string[]>, parentKey: string): Node[] {
+function sortByOrder(
+    nodes: Node[],
+    order: Map<string, string[]>,
+    parentKey: string
+): Node[] {
     const ids = order.get(parentKey)
     if (!ids) return nodes
     return [...nodes].sort((a, b) => {
@@ -38,16 +73,20 @@ function sortByOrder(nodes: Node[], order: Map<string, string[]>, parentKey: str
     })
 }
 
-export default function ScenePanel(props: Readonly<{
-    scene: Accessor<Scene | undefined>
-    selectedNode: Accessor<Node | undefined>
-    setSelectedNode: (node: Node | undefined) => void
-    nodeTick: Accessor<number>
-    setNodeTick: Setter<number>
-}>) {
+export default function ScenePanel(
+    props: Readonly<{
+        scene: Accessor<Scene | undefined>
+        selectedNode: Accessor<Node | undefined>
+        setSelectedNode: (node: Node | undefined) => void
+        nodeTick: Accessor<number>
+        setNodeTick: Setter<number>
+    }>
+) {
     const [search, setSearch] = createSignal('')
     // Track sibling order externally so we never touch Babylon internals
-    const [siblingOrder, setSiblingOrder] = createSignal<Map<string, string[]>>(new Map())
+    const [siblingOrder, setSiblingOrder] = createSignal<Map<string, string[]>>(
+        new Map()
+    )
     const [showAddMenu, setShowAddMenu] = createSignal(false)
     const [contextMenu, setContextMenu] = createSignal<{
         x: number
@@ -65,21 +104,57 @@ export default function ScenePanel(props: Readonly<{
         const name = `${label}_${_addCounter}`
         let mesh: Mesh
         switch (type) {
-            case 'box': mesh = MeshBuilder.CreateBox(name, { size: 1 }, scene); break
-            case 'sphere': mesh = MeshBuilder.CreateSphere(name, { diameter: 1, segments: 16 }, scene); break
-            case 'cylinder': mesh = MeshBuilder.CreateCylinder(name, { height: 1, diameter: 1 }, scene); break
-            case 'cone': mesh = MeshBuilder.CreateCylinder(name, { height: 1, diameterTop: 0, diameterBottom: 1 }, scene); break
-            case 'torus': mesh = MeshBuilder.CreateTorus(name, { diameter: 1, thickness: 0.3, tessellation: 24 }, scene); break
-            case 'plane': mesh = MeshBuilder.CreatePlane(name, { size: 1 }, scene); break
-            case 'ground': mesh = MeshBuilder.CreateGround(name, { width: 10, height: 10 }, scene); break
-            default: return
+            case 'box':
+                mesh = MeshBuilder.CreateBox(name, { size: 1 }, scene)
+                break
+            case 'sphere':
+                mesh = MeshBuilder.CreateSphere(
+                    name,
+                    { diameter: 1, segments: 16 },
+                    scene
+                )
+                break
+            case 'cylinder':
+                mesh = MeshBuilder.CreateCylinder(
+                    name,
+                    { height: 1, diameter: 1 },
+                    scene
+                )
+                break
+            case 'cone':
+                mesh = MeshBuilder.CreateCylinder(
+                    name,
+                    { height: 1, diameterTop: 0, diameterBottom: 1 },
+                    scene
+                )
+                break
+            case 'torus':
+                mesh = MeshBuilder.CreateTorus(
+                    name,
+                    { diameter: 1, thickness: 0.3, tessellation: 24 },
+                    scene
+                )
+                break
+            case 'plane':
+                mesh = MeshBuilder.CreatePlane(name, { size: 1 }, scene)
+                break
+            case 'ground':
+                mesh = MeshBuilder.CreateGround(
+                    name,
+                    { width: 10, height: 10 },
+                    scene
+                )
+                break
+            default:
+                return
         }
         const mat = new StandardMaterial(`${name}_mat`, scene)
         mat.diffuseColor = new Color3(0.6, 0.6, 0.6)
         mesh.material = mat
+        mesh.metadata = { physicsMass: 1, physicsEnabled: false }
         if (type !== 'ground' && type !== 'plane') mesh.position.y = 1
         props.setSelectedNode(mesh)
-        props.setNodeTick(t => t + 1)
+        props.setNodeTick((t) => t + 1)
         setShowAddMenu(false)
     }
 
@@ -91,14 +166,30 @@ export default function ScenePanel(props: Readonly<{
         const name = `${label}Light_${_addCounter}`
         let light: Light
         switch (type) {
-            case 'point': light = new PointLight(name, new Vector3(0, 5, 0), scene); break
-            case 'directional': light = new DirectionalLight(name, new Vector3(0, -1, 0), scene); break
-            case 'spot': light = new SpotLight(name, new Vector3(0, 5, 0), new Vector3(0, -1, 0), Math.PI / 3, 2, scene); break
-            case 'hemispheric': light = new HemisphericLight(name, new Vector3(0, 1, 0), scene); break
-            default: return
+            case 'point':
+                light = new PointLight(name, new Vector3(0, 5, 0), scene)
+                break
+            case 'directional':
+                light = new DirectionalLight(name, new Vector3(0, -1, 0), scene)
+                break
+            case 'spot':
+                light = new SpotLight(
+                    name,
+                    new Vector3(0, 5, 0),
+                    new Vector3(0, -1, 0),
+                    Math.PI / 3,
+                    2,
+                    scene
+                )
+                break
+            case 'hemispheric':
+                light = new HemisphericLight(name, new Vector3(0, 1, 0), scene)
+                break
+            default:
+                return
         }
         props.setSelectedNode(light)
-        props.setNodeTick(t => t + 1)
+        props.setNodeTick((t) => t + 1)
         setShowAddMenu(false)
     }
 
@@ -118,7 +209,10 @@ export default function ScenePanel(props: Readonly<{
         _addCounter++
 
         if (node instanceof Mesh) {
-            const clone = node.clone(`${node.name}_copy_${_addCounter}`, node.parent)
+            const clone = node.clone(
+                `${node.name}_copy_${_addCounter}`,
+                node.parent
+            )
             if (clone) {
                 clone.position.x += 1
                 props.setSelectedNode(clone)
@@ -231,12 +325,7 @@ export default function ScenePanel(props: Readonly<{
                 'plane',
                 'ground',
             ]
-            const lightTypes = [
-                'point',
-                'directional',
-                'spot',
-                'hemispheric',
-            ]
+            const lightTypes = ['point', 'directional', 'spot', 'hemispheric']
             if (meshTypes.includes(type)) addMesh(type)
             else if (lightTypes.includes(type)) addLight(type)
         } else if (id === 'delete' && ctx.node) {
@@ -258,15 +347,16 @@ export default function ScenePanel(props: Readonly<{
                 id: node.uniqueId.toString(),
                 label: node.name || '(unnamed)',
                 icon: getNodeIcon(node),
-                children: children.length > 0
-                    ? children.map(child => nodeToTreeNode(child))
-                    : undefined,
+                children:
+                    children.length > 0
+                        ? children.map((child) => nodeToTreeNode(child))
+                        : undefined,
                 data: node,
             }
         }
 
         const roots = sortByOrder([...scene.rootNodes], order, 'root')
-        return roots.map(node => nodeToTreeNode(node))
+        return roots.map((node) => nodeToTreeNode(node))
     }
 
     const treeItems = () => {
@@ -298,8 +388,10 @@ export default function ScenePanel(props: Readonly<{
         // For before/after, record the desired sibling order
         if (event.position !== 'inside') {
             const parentKey = newParent?.uniqueId?.toString() ?? 'root'
-            const siblings = newParent ? newParent.getChildren() : [...scene.rootNodes]
-            const ids = siblings.map(n => n.uniqueId.toString())
+            const siblings = newParent
+                ? newParent.getChildren()
+                : [...scene.rootNodes]
+            const ids = siblings.map((n) => n.uniqueId.toString())
 
             const sourceId = source.uniqueId.toString()
             const srcIdx = ids.indexOf(sourceId)
@@ -308,18 +400,19 @@ export default function ScenePanel(props: Readonly<{
             const targetId = target.uniqueId.toString()
             const tgtIdx = ids.indexOf(targetId)
             if (tgtIdx !== -1) {
-                const insertIdx = event.position === 'before' ? tgtIdx : tgtIdx + 1
+                const insertIdx =
+                    event.position === 'before' ? tgtIdx : tgtIdx + 1
                 ids.splice(insertIdx, 0, sourceId)
             }
 
-            setSiblingOrder(prev => {
+            setSiblingOrder((prev) => {
                 const next = new Map(prev)
                 next.set(parentKey, ids)
                 return next
             })
         }
 
-        props.setNodeTick(t => t + 1)
+        props.setNodeTick((t) => t + 1)
     }
 
     return (
@@ -330,33 +423,109 @@ export default function ScenePanel(props: Readonly<{
                     <button
                         type="button"
                         class="text-gray-400 hover:text-gray-200 p-0.5 rounded hover:bg-gray-700"
-                        onClick={() => setShowAddMenu(v => !v)}
+                        onClick={() => setShowAddMenu((v) => !v)}
                     >
                         <Icon path={plus} class="size-4" />
                     </button>
                     <Show when={showAddMenu()}>
-                        <div class="fixed inset-0 z-40" onClick={() => setShowAddMenu(false)} />
+                        <div
+                            class="fixed inset-0 z-40"
+                            onClick={() => setShowAddMenu(false)}
+                        />
                         <div class="absolute right-0 top-full mt-1 w-44 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-50 py-1">
-                            <div class="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">Meshes</div>
-                            <button type="button" class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700" onClick={() => addMesh('box')}>Box</button>
-                            <button type="button" class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700" onClick={() => addMesh('sphere')}>Sphere</button>
-                            <button type="button" class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700" onClick={() => addMesh('cylinder')}>Cylinder</button>
-                            <button type="button" class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700" onClick={() => addMesh('cone')}>Cone</button>
-                            <button type="button" class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700" onClick={() => addMesh('torus')}>Torus</button>
-                            <button type="button" class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700" onClick={() => addMesh('plane')}>Plane</button>
-                            <button type="button" class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700" onClick={() => addMesh('ground')}>Ground</button>
+                            <div class="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                Meshes
+                            </div>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addMesh('box')}
+                            >
+                                Box
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addMesh('sphere')}
+                            >
+                                Sphere
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addMesh('cylinder')}
+                            >
+                                Cylinder
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addMesh('cone')}
+                            >
+                                Cone
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addMesh('torus')}
+                            >
+                                Torus
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addMesh('plane')}
+                            >
+                                Plane
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addMesh('ground')}
+                            >
+                                Ground
+                            </button>
                             <div class="border-t border-gray-700 my-1" />
-                            <div class="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">Lights</div>
-                            <button type="button" class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700" onClick={() => addLight('point')}>Point Light</button>
-                            <button type="button" class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700" onClick={() => addLight('directional')}>Directional Light</button>
-                            <button type="button" class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700" onClick={() => addLight('spot')}>Spot Light</button>
-                            <button type="button" class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700" onClick={() => addLight('hemispheric')}>Hemispheric Light</button>
+                            <div class="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                Lights
+                            </div>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addLight('point')}
+                            >
+                                Point Light
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addLight('directional')}
+                            >
+                                Directional Light
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addLight('spot')}
+                            >
+                                Spot Light
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addLight('hemispheric')}
+                            >
+                                Hemispheric Light
+                            </button>
                         </div>
                     </Show>
                 </div>
             </div>
             <div class="relative mb-2">
-                <Icon path={magnifyingGlass} class="size-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                <Icon
+                    path={magnifyingGlass}
+                    class="size-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-500"
+                />
                 <input
                     type="text"
                     placeholder="Search nodes..."

@@ -336,6 +336,32 @@ export default function PropertiesPanel(
                     <TransformProperties node={transformNode} />
                 </Show>
                 <Show when={props.node() instanceof Mesh}>
+                    <Collapsible title="Physics">
+                        <Checkbox
+                            label="Enabled"
+                            checked={meshNode()?.metadata?.physicsEnabled}
+                            onChange={(e) => {
+                                const m = meshNode()
+                                if (m)
+                                    m.metadata.physicsEnabled =
+                                        e.currentTarget.checked
+                            }}
+                        />
+                        <Input
+                            label="Mass"
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            value={fmt(meshNode()?.metadata?.physicsMass)}
+                            onChange={(e) => {
+                                const m = meshNode()
+                                if (m)
+                                    m.metadata.physicsMass = Number.parseFloat(
+                                        e.currentTarget.value
+                                    )
+                            }}
+                        />
+                    </Collapsible>
                     <Collapsible title="Rendering">
                         <div class="flex flex-col gap-2">
                             <Input

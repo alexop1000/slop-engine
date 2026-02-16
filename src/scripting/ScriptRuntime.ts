@@ -1,4 +1,5 @@
 import {
+    AbstractMesh,
     Scene,
     Node,
     TransformNode,
@@ -37,8 +38,7 @@ const SlopMath: Record<string, unknown> = {
     clamp: (value: number, min: number, max: number) =>
         Math.min(Math.max(value, min), max),
     lerp: (a: number, b: number, t: number) => a + (b - a) * t,
-    inverseLerp: (a: number, b: number, value: number) =>
-        (value - a) / (b - a),
+    inverseLerp: (a: number, b: number, value: number) => (value - a) / (b - a),
     smoothstep: (edge0: number, edge1: number, x: number) => {
         const t = Math.min(Math.max((x - edge0) / (edge1 - edge0), 0), 1)
         return t * t * (3 - 2 * t)
@@ -106,7 +106,7 @@ function compileScript(tsSource: string): new () => Script {
         SlopMath,
         // Utility shortcuts
         (x: number, y: number, z: number) => new Vector3(x, y, z),
-        (r: number, g: number, b: number) => new Color3(r, g, b),
+        (r: number, g: number, b: number) => new Color3(r, g, b)
     )
 
     if (typeof ScriptClass !== 'function') {
@@ -173,10 +173,43 @@ export class ScriptRuntime {
                     instance.node = node as TransformNode
                     instance.scene = scene
                     instance.input = this._input
-                    instance.camera =
-                        scene.activeCamera as UniversalCamera
+                    instance.camera = scene.activeCamera as UniversalCamera
                     instance.deltaTime = 0
                     instance.time = 0
+
+                    // Proxy physics metadata as direct properties on
+                    // the node so scripts can use node.physicsEnabled
+                    // and node.physicsMass transparently.
+                    if (
+                        node instanceof AbstractMesh &&
+                        !('physicsEnabled' in node)
+                    ) {
+                        if (!node.metadata) {
+                            node.metadata = {
+                                physicsEnabled: false,
+                                physicsMass: 1,
+                            }
+                        }
+                        Object.defineProperty(node, 'physicsEnabled', {
+                            get() {
+                                return node.metadata?.physicsEnabled ?? false
+                            },
+                            set(v: boolean) {
+                                if (node.metadata)
+                                    node.metadata.physicsEnabled = v
+                            },
+                            configurable: true,
+                        })
+                        Object.defineProperty(node, 'physicsMass', {
+                            get() {
+                                return node.metadata?.physicsMass ?? 1
+                            },
+                            set(v: number) {
+                                if (node.metadata) node.metadata.physicsMass = v
+                            },
+                            configurable: true,
+                        })
+                    }
 
                     this._scripts.push({ instance, node, path })
                 } catch (err) {

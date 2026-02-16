@@ -97,9 +97,6 @@ export default function Home() {
 
     const [isPlaying, setIsPlaying] = createSignal(false)
     const [scene, setScene] = createSignal<Scene>()
-    const [dynamicPhysicsMeshNames, setDynamicPhysicsMeshNames] = createSignal<
-        string[]
-    >([])
     const [selectedNode, setSelectedNode] = createSignal<Node>()
     const [engine, setEngine] = createSignal<Engine>()
     const [nodeTick, setNodeTick] = createSignal(0)
@@ -205,7 +202,6 @@ export default function Home() {
         const physicsPlugin = new HavokPlugin(true, initializedHavok)
 
         let scene: Scene
-        let dynamicNames: string[]
         const savedJson = sceneJson()
         if (savedJson) {
             try {
@@ -215,20 +211,16 @@ export default function Home() {
                     physicsPlugin
                 )
                 scene = result.scene
-                dynamicNames = result.dynamicPhysicsMeshNames
             } catch {
                 const result = createDefaultScene(eng, physicsPlugin)
                 scene = result.scene
-                dynamicNames = result.dynamicPhysicsMeshNames
             }
         } else {
             const result = createDefaultScene(eng, physicsPlugin)
             scene = result.scene
-            dynamicNames = result.dynamicPhysicsMeshNames
         }
 
         setupEditorCamera(scene, canvas)
-        setDynamicPhysicsMeshNames(dynamicNames)
 
         const utilityLayer = new UtilityLayerRenderer(scene)
         const gizmoManager = new GizmoManager(scene, undefined, utilityLayer)
@@ -241,10 +233,12 @@ export default function Home() {
         let hasDragged = false
         const DRAG_THRESHOLD = 5
         canvas.addEventListener('pointerdown', (e) => {
+            if (isPlaying()) return
             pointerDownPos = { x: e.clientX, y: e.clientY }
             hasDragged = false
         })
         canvas.addEventListener('pointermove', (e) => {
+            if (isPlaying()) return
             if (pointerDownPos && !hasDragged) {
                 const dx = e.clientX - pointerDownPos.x
                 const dy = e.clientY - pointerDownPos.y
@@ -254,6 +248,7 @@ export default function Home() {
             }
         })
         canvas.addEventListener('pointerup', (e) => {
+            if (isPlaying()) return
             // Only handle selection if this was a click (no drag)
             if (!hasDragged && pointerDownPos) {
                 const result = scene.pick(
@@ -316,6 +311,20 @@ export default function Home() {
                                 _physicsAggregates.clear()
                                 _transformSnapshots.clear()
 
+                                gizmoManager()!.attachToMesh(
+                                    selectedNode() instanceof Mesh
+                                        ? (selectedNode() as Mesh)
+                                        : null
+                                )
+                                gizmoManager()!.positionGizmoEnabled =
+                                    selectedGizmo() === 'position'
+                                gizmoManager()!.rotationGizmoEnabled =
+                                    selectedGizmo() === 'rotation'
+                                gizmoManager()!.scaleGizmoEnabled =
+                                    selectedGizmo() === 'scale'
+                                gizmoManager()!.boundingBoxGizmoEnabled =
+                                    selectedGizmo() === 'boundingBox'
+
                                 const canvas = document.getElementById(
                                     'canvas'
                                 ) as HTMLCanvasElement
@@ -324,23 +333,37 @@ export default function Home() {
                             } else {
                                 clearLogs()
 
-                                for (const name of dynamicPhysicsMeshNames()) {
-                                    const mesh = s.getMeshByName(
-                                        name
-                                    ) as Mesh | null
-                                    if (!mesh) continue
+                                for (const mesh of s.meshes) {
+                                    if (!(mesh instanceof Mesh)) continue
                                     _transformSnapshots.set(
                                         mesh,
                                         captureTransformSnapshot(mesh)
                                     )
-                                    const agg = new PhysicsAggregate(
-                                        mesh,
-                                        PhysicsShapeType.BOX,
-                                        { mass: 1, restitution: 0.75 },
-                                        s
-                                    )
-                                    _physicsAggregates.set(mesh, agg)
+                                    const metadata = mesh.metadata as
+                                        | {
+                                              physicsMass?: number
+                                              physicsEnabled?: boolean
+                                          }
+                                        | undefined
+                                    const mass = metadata?.physicsMass ?? 1
+                                    const enabled =
+                                        metadata?.physicsEnabled ?? false
+                                    if (enabled) {
+                                        const agg = new PhysicsAggregate(
+                                            mesh,
+                                            PhysicsShapeType.CONVEX_HULL,
+                                            { mass, restitution: 0.75 },
+                                            s
+                                        )
+                                        _physicsAggregates.set(mesh, agg)
+                                    }
                                 }
+
+                                gizmoManager()!.attachToMesh(null)
+                                gizmoManager()!.positionGizmoEnabled = false
+                                gizmoManager()!.rotationGizmoEnabled = false
+                                gizmoManager()!.scaleGizmoEnabled = false
+                                gizmoManager()!.boundingBoxGizmoEnabled = false
 
                                 // Set up runtime camera before scripts so
                                 // scripts receive the correct camera reference
