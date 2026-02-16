@@ -460,7 +460,9 @@ export function chatApiPlugin(): Plugin {
                     const modelMessages = await convertToModelMessages(messages)
 
                     const result = streamText({
-                        model: openrouter.chat(env.OPENROUTER_MODEL ?? 'arcee-ai/arcee-blitz'),
+                        model: openrouter.chat(
+                            env.OPENROUTER_MODEL ?? 'arcee-ai/arcee-blitz'
+                        ),
                         system: buildSystemPrompt(server.config.root),
                         tools: {
                             create_script: createScriptTool,
