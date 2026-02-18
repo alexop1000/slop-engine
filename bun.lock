@@ -14,6 +14,7 @@
         "@solidjs/router": "^0.15.4",
         "ai": "^6.0.85",
         "babylonjs": "^8.47.0",
+        "babylonjs-loaders": "^8.51.2",
         "corvu": "^0.7.2",
         "marked": "^17.0.2",
         "monaco-editor": "^0.55.1",
@@ -337,6 +338,10 @@
 
     "babylonjs": ["babylonjs@8.47.0", "", {}, "sha512-verii9IYoGBbJq2CGofUxyO3i8wqnTNQRV0YuXWkX0I3AyqeDaB6J1HJ/fnTv3wJxbnr4QoPTMQ9gpnF3fK2HQ=="],
 
+    "babylonjs-gltf2interface": ["babylonjs-gltf2interface@8.51.2", "", {}, "sha512-NPrspLrMc+osgBxe5xRDWDBggyIkOj42Kc16kHwmUOzM4gW7QUE+iM1hNIv34832Jp25b3Tdj+Y73lhFaUpCdw=="],
+
+    "babylonjs-loaders": ["babylonjs-loaders@8.51.2", "", { "dependencies": { "babylonjs": "8.51.2", "babylonjs-gltf2interface": "8.51.2" } }, "sha512-fXl0k589oHfMBop0SNGNMb4UuNmbj6mcID5Jhrf+jn0BYwL1p8hMJPt8qRdMpiFEMUyMbscPiuRgr/1l1SzcTw=="],
+
     "balanced-match": ["balanced-match@1.0.2", "", {}, "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw=="],
 
     "baseline-browser-mapping": ["baseline-browser-mapping@2.8.18", "", { "bin": { "baseline-browser-mapping": "dist/cli.js" } }, "sha512-UYmTpOBwgPScZpS4A+YbapwWuBwasxvO/2IOHArSsAhL/+ZdmATBXTex3t+l2hXwLVYK382ibr/nKoY9GKe86w=="],
@@ -636,6 +641,8 @@
     "babel-plugin-jsx-dom-expressions/@babel/helper-module-imports": ["@babel/helper-module-imports@7.18.6", "", { "dependencies": { "@babel/types": "7.28.4" } }, "sha512-0NFvs3VkuSYbFi1x2Vd6tKrywq+z/cLeYC/RJNFrIX/30Bf5aiGYbtvGXolEktzJH8o5E5KJ3tT+nkxuuZFVlA=="],
 
     "babel-preset-solid/solid-js": ["solid-js@1.9.9", "", { "dependencies": { "csstype": "3.1.3", "seroval": "1.3.2", "seroval-plugins": "1.3.3" } }, "sha512-A0ZBPJQldAeGCTW0YRYJmt7RCeh5rbFfPZ2aOttgYnctHE7HgKeHCBB/PVc2P7eOfmNXqMFFFoYYdm3S4dcbkA=="],
+
+    "babylonjs-loaders/babylonjs": ["babylonjs@8.51.2", "", {}, "sha512-o/3OHbucEWPLtyos8XjxFDCyOuXbTancVW+kBovK5o8VcKcU1mo1meGI+1AyzVMwF7f9bSOOsnPpdCz+E3nSGA=="],
 
     "micromatch/picomatch": ["picomatch@2.3.1", "", {}, "sha512-JU3teHTNjmE2VCGFzuY8EXzCDVwEqB2a8fsIvwaStHhAWJEeVd1o1QD80CU6+ZdEXXSLbSsuLwJjkCBWqRQUVA=="],
 

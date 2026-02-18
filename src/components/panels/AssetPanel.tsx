@@ -1,4 +1,4 @@
-import { createSignal, Show, createMemo } from 'solid-js'
+import { createSignal, Show, createMemo, type Accessor, type Setter } from 'solid-js'
 import {
     folder,
     document,
@@ -35,7 +35,9 @@ import {
     pathToId,
     type AssetNode,
 } from '../../assetStore'
+import { Scene, Node } from 'babylonjs'
 import { openScriptFile } from '../../scriptEditorStore'
+import { importModelToScene, type AssetResolver } from '../../scene/SceneOperations'
 
 // ── Constants ──────────────────────────────────────────────
 
@@ -119,7 +121,13 @@ const store = getAssetStore()
 
 // ── Component ──────────────────────────────────────────────
 
-export default function AssetPanel() {
+interface AssetPanelProps {
+    scene?: Accessor<Scene | undefined>
+    setSelectedNode?: (node: Node | undefined) => void
+    setNodeTick?: Setter<number>
+}
+
+export default function AssetPanel(props: AssetPanelProps) {
     const [contextMenu, setContextMenu] = createSignal<{
         x: number
         y: number
@@ -179,11 +187,45 @@ export default function AssetPanel() {
         setSelectedPath(data?.path ?? null)
     }
 
+    const resolveAsset: AssetResolver = (path) => getBlob(path)
+
+    async function addAssetModelToScene(node: AssetNode) {
+        const s = props.scene?.()
+        if (!s || node.type !== 'file') return
+        const ext = node.name.slice(node.name.lastIndexOf('.')).toLowerCase()
+        if (!MODEL_EXT.includes(ext)) return
+
+        const blob = await getBlob(node.path)
+        if (!blob) return
+
+        // Derive the asset directory (parent folder path)
+        const lastSlash = node.path.lastIndexOf('/')
+        const assetDir = lastSlash > 0 ? node.path.slice(0, lastSlash) : ''
+
+        const root = await importModelToScene(
+            s,
+            blob,
+            node.name,
+            assetDir,
+            resolveAsset
+        )
+        props.setSelectedNode?.(root)
+        props.setNodeTick?.((t) => t + 1)
+    }
+
+    function isModelFile(node: AssetNode | null): boolean {
+        if (!node || node.type !== 'file') return false
+        const ext = node.name.slice(node.name.lastIndexOf('.')).toLowerCase()
+        return MODEL_EXT.includes(ext)
+    }
+
     const handleDoubleClick = (_id: string, data: AssetNode | undefined) => {
         if (!data || data.type !== 'file') return
         const ext = data.name.slice(data.name.lastIndexOf('.')).toLowerCase()
         if (SCRIPT_EXT.includes(ext)) {
             openScriptFile(data.path)
+        } else if (MODEL_EXT.includes(ext)) {
+            addAssetModelToScene(data)
         }
     }
 
@@ -212,6 +254,16 @@ export default function AssetPanel() {
     function getContextMenuItems(): ContextMenuItem[] {
         const node = contextMenu()?.node
         return [
+            ...(isModelFile(node ?? null) && props.scene
+                ? [
+                      {
+                          id: 'add-to-scene',
+                          label: 'Add to Scene',
+                          icon: cube,
+                      },
+                      { id: 'sep-0', label: '', separator: true },
+                  ]
+                : []),
             { id: 'new-folder', label: 'New Folder', icon: folderPlus },
             { id: 'new-file', label: 'New File', icon: documentPlus },
             { id: 'import', label: 'Import Assets...', icon: arrowDownTray },
@@ -237,6 +289,9 @@ export default function AssetPanel() {
         const parentPath = getParentPath(ctx.node)
 
         switch (id) {
+            case 'add-to-scene':
+                if (ctx.node) addAssetModelToScene(ctx.node)
+                break
             case 'new-folder':
                 openModal('newFolder', { parentPath }, 'New Folder')
                 break
@@ -320,14 +375,23 @@ export default function AssetPanel() {
         try {
             store.addNode(targetPath, name, 'file')
             return joinPath(targetPath, name)
-        } catch {
+        } catch (e) {
+            if (!(e instanceof Error) || !e.message.includes('already exists')) {
+                throw e
+            }
             const [base, ext] = splitFilename(name)
             for (let n = 1; n <= MAX_DEDUP_RETRIES; n++) {
                 const candidate = `${base}_${n}${ext}`
                 try {
                     store.addNode(targetPath, candidate, 'file')
                     return joinPath(targetPath, candidate)
-                } catch {
+                } catch (e2) {
+                    if (
+                        !(e2 instanceof Error) ||
+                        !e2.message.includes('already exists')
+                    ) {
+                        throw e2
+                    }
                     if (n === MAX_DEDUP_RETRIES) {
                         throw new Error('Could not find unique filename')
                     }

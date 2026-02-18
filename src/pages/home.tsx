@@ -582,7 +582,11 @@ export default function Home() {
                                     <ConsolePanel />
                                 </TabPanel>
                                 <TabPanel tabId="assets" class="flex-1 min-h-0">
-                                    <AssetPanel />
+                                    <AssetPanel
+                                        scene={scene}
+                                        setSelectedNode={setSelectedNode}
+                                        setNodeTick={setNodeTick}
+                                    />
                                 </TabPanel>
                             </Tabs>
                         </Resizable.Panel>

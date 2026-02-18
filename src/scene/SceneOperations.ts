@@ -13,7 +13,39 @@ import {
     DirectionalLight,
     SpotLight,
     HemisphericLight,
+    SceneLoader,
+    registerSceneLoaderPlugin,
 } from 'babylonjs'
+import { GLTFFileLoader, OBJFileLoader } from 'babylonjs-loaders'
+
+// Register file loaders (BabylonJS 8 requires explicit registration)
+registerSceneLoaderPlugin({
+    name: 'gltf',
+    extensions: {
+        '.gltf': { isBinary: false, mimeType: 'model/gltf+json' },
+        '.glb': { isBinary: true, mimeType: 'model/gltf-binary' },
+    },
+    createPlugin: () => new GLTFFileLoader(),
+})
+registerSceneLoaderPlugin({
+    name: 'obj',
+    extensions: { '.obj': { isBinary: false } },
+    createPlugin: () => new OBJFileLoader(),
+})
+
+// ── Extension map for SceneLoader ───────────────────────────────────
+
+const LOADER_EXT: Record<string, string> = {
+    '.glb': '.glb',
+    '.gltf': '.gltf',
+    '.obj': '.obj',
+    '.babylon': '.babylon',
+}
+
+function getLoaderExtension(filename: string): string | null {
+    const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase()
+    return LOADER_EXT[ext] ?? null
+}
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -298,4 +330,186 @@ export function deleteNodeFromScene(scene: Scene, name: string): void {
     if (!node) throw new Error(`Node "${name}" not found`)
     if (node === scene.activeCamera) throw new Error('Cannot delete the active camera')
     node.dispose()
+}
+
+// ── Import model from blob ──────────────────────────────────────────
+
+/**
+ * Resolves sibling asset blobs by path.
+ * Provided by the caller so SceneOperations stays decoupled from assetStore.
+ */
+export type AssetResolver = (path: string) => Promise<Blob | null>
+
+/** MTL texture map directives we care about. */
+const MTL_MAP_DIRECTIVES = [
+    'map_Ka',
+    'map_Kd',
+    'map_Ks',
+    'map_Ns',
+    'map_d',
+    'map_bump',
+    'bump',
+    'disp',
+    'decal',
+    'refl',
+]
+
+/**
+ * For an OBJ file: read its text, find the mtllib reference, load the MTL
+ * from the asset store, find texture references, and rewrite all paths to
+ * blob URLs so BabylonJS can resolve everything from IndexedDB blobs.
+ */
+async function prepareObjBlob(
+    objBlob: Blob,
+    assetDir: string,
+    resolveAsset: AssetResolver
+): Promise<{ url: string; revokeAll: () => void }> {
+    const blobUrls: string[] = []
+
+    let objText = await objBlob.text()
+
+    // Find mtllib directive(s)
+    const mtlMatch = objText.match(/^mtllib\s+(.+)$/m)
+    if (mtlMatch) {
+        const mtlFilename = mtlMatch[1].trim()
+        const mtlPath = assetDir ? `${assetDir}/${mtlFilename}` : mtlFilename
+        const mtlBlob = await resolveAsset(mtlPath)
+
+        if (mtlBlob) {
+            let mtlText = await mtlBlob.text()
+
+            // Find and resolve texture references in the MTL
+            for (const directive of MTL_MAP_DIRECTIVES) {
+                const regex = new RegExp(
+                    `^(${directive}\\s+(?:-[^\\s]+\\s+)*)(.+)$`,
+                    'gm'
+                )
+                mtlText = await replaceAsync(
+                    mtlText,
+                    regex,
+                    async (_match, prefix, texFile) => {
+                        const texFilename = texFile.trim()
+                        const texPath = assetDir
+                            ? `${assetDir}/${texFilename}`
+                            : texFilename
+                        const texBlob = await resolveAsset(texPath)
+                        if (texBlob) {
+                            const texUrl = URL.createObjectURL(texBlob)
+                            blobUrls.push(texUrl)
+                            return `${prefix}${texUrl}`
+                        }
+                        return _match
+                    }
+                )
+            }
+
+            // Create blob URL for the rewritten MTL
+            const mtlBlobRewritten = new Blob([mtlText], {
+                type: 'text/plain',
+            })
+            const mtlUrl = URL.createObjectURL(mtlBlobRewritten)
+            blobUrls.push(mtlUrl)
+
+            // Rewrite the OBJ mtllib to point to the MTL blob URL
+            objText = objText.replace(
+                /^mtllib\s+.+$/m,
+                `mtllib ${mtlUrl}`
+            )
+        }
+    }
+
+    const objBlobRewritten = new Blob([objText], { type: 'text/plain' })
+    const objUrl = URL.createObjectURL(objBlobRewritten)
+    blobUrls.push(objUrl)
+
+    return {
+        url: objUrl,
+        revokeAll: () => blobUrls.forEach(URL.revokeObjectURL),
+    }
+}
+
+/** Async version of String.replace with an async replacer function. */
+async function replaceAsync(
+    str: string,
+    regex: RegExp,
+    asyncFn: (...args: string[]) => Promise<string>
+): Promise<string> {
+    const matches: { match: string; args: string[]; index: number }[] = []
+    str.replace(regex, (match, ...args) => {
+        matches.push({ match, args: args.slice(0, -2) as string[], index: args[args.length - 2] as unknown as number })
+        return match
+    })
+    let result = str
+    // Process in reverse order to preserve indices
+    for (let i = matches.length - 1; i >= 0; i--) {
+        const m = matches[i]
+        const replacement = await asyncFn(m.match, ...m.args)
+        result =
+            result.slice(0, m.index) +
+            replacement +
+            result.slice(m.index + m.match.length)
+    }
+    return result
+}
+
+export async function importModelToScene(
+    scene: Scene,
+    blob: Blob,
+    filename: string,
+    assetDir?: string,
+    resolveAsset?: AssetResolver
+): Promise<TransformNode> {
+    const ext = getLoaderExtension(filename)
+    if (!ext) {
+        throw new Error(`Unsupported model format: "${filename}"`)
+    }
+
+    let url: string
+    let cleanup: (() => void) | undefined
+
+    // For OBJ files, rewrite mtllib/texture references to blob URLs
+    if (ext === '.obj' && resolveAsset) {
+        const prepared = await prepareObjBlob(
+            blob,
+            assetDir ?? '',
+            resolveAsset
+        )
+        url = prepared.url
+        cleanup = prepared.revokeAll
+    } else {
+        url = URL.createObjectURL(blob)
+        cleanup = () => URL.revokeObjectURL(url)
+    }
+
+    try {
+        const result = await SceneLoader.ImportMeshAsync(
+            '',
+            '',
+            url,
+            scene,
+            undefined,
+            ext
+        )
+
+        // Create a root TransformNode to group all imported meshes
+        const baseName = filename.slice(0, filename.lastIndexOf('.'))
+        const root = new TransformNode(nextName(baseName), scene)
+
+        for (const mesh of result.meshes) {
+            if (!mesh.parent) {
+                mesh.setParent(root)
+            }
+            if (mesh instanceof Mesh) {
+                mesh.metadata = {
+                    ...mesh.metadata,
+                    physicsMass: 1,
+                    physicsEnabled: false,
+                }
+            }
+        }
+
+        return root
+    } finally {
+        cleanup?.()
+    }
 }
