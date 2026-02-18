@@ -331,6 +331,9 @@ export default function PropertiesPanel(
                             props.setNodeTick((t) => t + 1)
                         }}
                     />
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                        Class: {props.node()?.getClassName()}
+                    </label>
                 </Show>
                 <Show when={props.node() instanceof TransformNode}>
                     <TransformProperties node={transformNode} />

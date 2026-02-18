@@ -355,101 +355,68 @@ const MTL_MAP_DIRECTIVES = [
 ]
 
 /**
- * For an OBJ file: read its text, find the mtllib reference, load the MTL
- * from the asset store, find texture references, and rewrite all paths to
- * blob URLs so BabylonJS can resolve everything from IndexedDB blobs.
+ * For an OBJ file: inline the MTL as a base64 data URL and replace texture
+ * references with blob URLs so the BabylonJS OBJ loader can resolve
+ * everything without HTTP requests.
  */
-async function prepareObjBlob(
+async function prepareObjDataUrl(
     objBlob: Blob,
     assetDir: string,
     resolveAsset: AssetResolver
-): Promise<{ url: string; revokeAll: () => void }> {
-    const blobUrls: string[] = []
-
+): Promise<{ url: string; textureBlobUrls: string[] }> {
+    const textureBlobUrls: string[] = []
     let objText = await objBlob.text()
 
-    // Find mtllib directive(s)
     const mtlMatch = objText.match(/^mtllib\s+(.+)$/m)
-    if (mtlMatch) {
-        const mtlFilename = mtlMatch[1].trim()
-        const mtlPath = assetDir ? `${assetDir}/${mtlFilename}` : mtlFilename
-        const mtlBlob = await resolveAsset(mtlPath)
+    if (!mtlMatch) {
+        return { url: 'data:;base64,' + btoa(objText), textureBlobUrls }
+    }
 
-        if (mtlBlob) {
-            let mtlText = await mtlBlob.text()
+    const mtlFilename = mtlMatch[1].trim()
+    const mtlPath = assetDir ? `${assetDir}/${mtlFilename}` : mtlFilename
+    const mtlBlob = await resolveAsset(mtlPath)
 
-            // Find and resolve texture references in the MTL
-            for (const directive of MTL_MAP_DIRECTIVES) {
-                const regex = new RegExp(
-                    `^(${directive}\\s+(?:-[^\\s]+\\s+)*)(.+)$`,
-                    'gm'
-                )
-                mtlText = await replaceAsync(
-                    mtlText,
-                    regex,
-                    async (_match, prefix, texFile) => {
-                        const texFilename = texFile.trim()
-                        const texPath = assetDir
-                            ? `${assetDir}/${texFilename}`
-                            : texFilename
-                        const texBlob = await resolveAsset(texPath)
-                        if (texBlob) {
-                            const texUrl = URL.createObjectURL(texBlob)
-                            blobUrls.push(texUrl)
-                            return `${prefix}${texUrl}`
-                        }
-                        return _match
-                    }
-                )
+    if (!mtlBlob) {
+        return { url: 'data:;base64,' + btoa(objText), textureBlobUrls }
+    }
+
+    let mtlText = await mtlBlob.text()
+
+    // Replace texture filenames in the MTL with blob URLs
+    const resolved = new Map<string, string>()
+    for (const directive of MTL_MAP_DIRECTIVES) {
+        const regex = new RegExp(
+            `^(${directive}\\s+(?:-[^\\s]+\\s+)*)(.+)$`,
+            'gm'
+        )
+        let match
+        while ((match = regex.exec(mtlText)) !== null) {
+            const texFilename = match[2].trim()
+            if (resolved.has(texFilename)) continue
+            const texPath = assetDir
+                ? `${assetDir}/${texFilename}`
+                : texFilename
+            const texBlob = await resolveAsset(texPath)
+            if (texBlob) {
+                const texUrl = URL.createObjectURL(texBlob)
+                textureBlobUrls.push(texUrl)
+                resolved.set(texFilename, texUrl)
             }
-
-            // Create blob URL for the rewritten MTL
-            const mtlBlobRewritten = new Blob([mtlText], {
-                type: 'text/plain',
-            })
-            const mtlUrl = URL.createObjectURL(mtlBlobRewritten)
-            blobUrls.push(mtlUrl)
-
-            // Rewrite the OBJ mtllib to point to the MTL blob URL
-            objText = objText.replace(
-                /^mtllib\s+.+$/m,
-                `mtllib ${mtlUrl}`
-            )
         }
     }
+    for (const [texFilename, texUrl] of resolved) {
+        const escaped = texFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        mtlText = mtlText.replace(new RegExp(escaped, 'g'), texUrl)
+    }
 
-    const objBlobRewritten = new Blob([objText], { type: 'text/plain' })
-    const objUrl = URL.createObjectURL(objBlobRewritten)
-    blobUrls.push(objUrl)
+    // Inline the modified MTL as a base64 data URL in the OBJ
+    const mtlDataUrl = 'data:;base64,' + btoa(mtlText)
+    objText = objText.replace(mtlMatch[0], 'mtllib ' + mtlDataUrl)
 
     return {
-        url: objUrl,
-        revokeAll: () => blobUrls.forEach(URL.revokeObjectURL),
+        url: 'data:;base64,' + btoa(objText),
+        textureBlobUrls,
     }
-}
-
-/** Async version of String.replace with an async replacer function. */
-async function replaceAsync(
-    str: string,
-    regex: RegExp,
-    asyncFn: (...args: string[]) => Promise<string>
-): Promise<string> {
-    const matches: { match: string; args: string[]; index: number }[] = []
-    str.replace(regex, (match, ...args) => {
-        matches.push({ match, args: args.slice(0, -2) as string[], index: args[args.length - 2] as unknown as number })
-        return match
-    })
-    let result = str
-    // Process in reverse order to preserve indices
-    for (let i = matches.length - 1; i >= 0; i--) {
-        const m = matches[i]
-        const replacement = await asyncFn(m.match, ...m.args)
-        result =
-            result.slice(0, m.index) +
-            replacement +
-            result.slice(m.index + m.match.length)
-    }
-    return result
 }
 
 export async function importModelToScene(
@@ -465,20 +432,20 @@ export async function importModelToScene(
     }
 
     let url: string
-    let cleanup: (() => void) | undefined
+    let blobUrlsToRevoke: string[] = []
 
-    // For OBJ files, rewrite mtllib/texture references to blob URLs
     if (ext === '.obj' && resolveAsset) {
-        const prepared = await prepareObjBlob(
+        // Inline MTL + texture blob URLs so the loader resolves everything
+        const prepared = await prepareObjDataUrl(
             blob,
             assetDir ?? '',
             resolveAsset
         )
         url = prepared.url
-        cleanup = prepared.revokeAll
+        // Don't revoke texture blob URLs immediately – textures load async
     } else {
         url = URL.createObjectURL(blob)
-        cleanup = () => URL.revokeObjectURL(url)
+        blobUrlsToRevoke = [url]
     }
 
     try {
@@ -510,6 +477,6 @@ export async function importModelToScene(
 
         return root
     } finally {
-        cleanup?.()
+        blobUrlsToRevoke.forEach(URL.revokeObjectURL)
     }
 }

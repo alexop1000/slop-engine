@@ -1,4 +1,10 @@
-import { createSignal, Show, createMemo, type Accessor, type Setter } from 'solid-js'
+import {
+    createSignal,
+    Show,
+    createMemo,
+    type Accessor,
+    type Setter,
+} from 'solid-js'
 import {
     folder,
     document,
@@ -37,11 +43,14 @@ import {
 } from '../../assetStore'
 import { Scene, Node } from 'babylonjs'
 import { openScriptFile } from '../../scriptEditorStore'
-import { importModelToScene, type AssetResolver } from '../../scene/SceneOperations'
+import {
+    importModelToScene,
+    type AssetResolver,
+} from '../../scene/SceneOperations'
 
 // ── Constants ──────────────────────────────────────────────
 
-const MODEL_EXT = ['.glb', '.gltf', '.obj', '.fbx']
+const MODEL_EXT = ['.glb', '.gltf', '.obj']
 const TEXTURE_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tga']
 const SCRIPT_EXT = ['.ts', '.tsx', '.js', '.jsx']
 const INVALID_NAME_CHARS = /[\\/:*?"<>|]/
@@ -376,7 +385,10 @@ export default function AssetPanel(props: AssetPanelProps) {
             store.addNode(targetPath, name, 'file')
             return joinPath(targetPath, name)
         } catch (e) {
-            if (!(e instanceof Error) || !e.message.includes('already exists')) {
+            if (
+                !(e instanceof Error) ||
+                !e.message.includes('already exists')
+            ) {
                 throw e
             }
             const [base, ext] = splitFilename(name)
