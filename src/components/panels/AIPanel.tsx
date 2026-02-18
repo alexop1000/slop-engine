@@ -32,9 +32,16 @@ import {
     updateNodeInScene,
     deleteNodeFromScene,
     getSceneSnapshot,
+    importModelToScene,
+    createGroupInScene,
+    setParentInScene,
+    executeBulkOperations,
     type AddMeshOptions,
     type AddLightOptions,
     type UpdateNodeOptions,
+    type CreateGroupOptions,
+    type BulkOperation,
+    type AssetResolver,
 } from '../../scene/SceneOperations'
 
 marked.setOptions({ breaks: true, gfm: true })
@@ -179,6 +186,30 @@ function ToolCallIndicator(props: Readonly<{ part: ToolUIPart }>) {
                 if (isDone()) return `Deleted "${n ?? 'node'}"`
                 return `Deleting "${n ?? 'node'}"…`
             }
+            case 'create_group': {
+                const n = inp?.name as string | undefined
+                if (isError()) return `Failed to create group "${n ?? 'group'}"`
+                if (isDone()) return `Created group "${n ?? 'group'}"`
+                return `Creating group "${n ?? 'group'}"…`
+            }
+            case 'set_parent': {
+                const n = inp?.node as string | undefined
+                const p = inp?.parent as string | undefined
+                if (isError())
+                    return `Failed to set parent of "${n ?? 'node'}"`
+                if (isDone())
+                    return p
+                        ? `Parented "${n}" under "${p}"`
+                        : `Unparented "${n}"`
+                return `Setting parent of "${n ?? 'node'}"…`
+            }
+            case 'bulk_scene': {
+                const ops = inp?.operations as unknown[] | undefined
+                const count = ops?.length ?? 0
+                if (isError()) return `Bulk operation failed (${count} ops)`
+                if (isDone()) return `Completed ${count} operations`
+                return `Running ${count} operations…`
+            }
             case 'list_scripts':
                 if (isDone()) return 'Listed scripts'
                 return 'Listing scripts…'
@@ -213,6 +244,15 @@ function ToolCallIndicator(props: Readonly<{ part: ToolUIPart }>) {
                 if (isError()) return `Failed to delete ${p ?? 'script'}`
                 if (isDone()) return `Deleted ${p ?? 'script'}`
                 return `Deleting ${p ?? 'script'}…`
+            }
+            case 'list_assets':
+                if (isDone()) return 'Listed assets'
+                return 'Listing assets…'
+            case 'import_asset': {
+                const p = inp?.path as string | undefined
+                if (isError()) return `Failed to import ${p ?? 'model'}`
+                if (isDone()) return `Imported ${p ?? 'model'}`
+                return `Importing ${p ?? 'model'}…`
             }
             default:
                 if (isDone()) return `Ran ${name}`
@@ -582,6 +622,43 @@ export default function AIPanel(props: Readonly<{
         return `Deleted node "${args.name}"`
     }
 
+    const executeCreateGroup = (args: CreateGroupOptions): string => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+        const group = createGroupInScene(s, args)
+        props.setSelectedNode(group)
+        props.setNodeTick((t) => t + 1)
+        return `Created group "${group.name}"`
+    }
+
+    const executeSetParent = (args: {
+        node: string
+        parent: string | null
+    }): string => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+        setParentInScene(s, args.node, args.parent)
+        props.setNodeTick((t) => t + 1)
+        return args.parent
+            ? `Set parent of "${args.node}" to "${args.parent}"`
+            : `Unparented "${args.node}"`
+    }
+
+    const executeBulkScene = (args: {
+        operations: BulkOperation[]
+    }): string => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+        const results = executeBulkOperations(s, args.operations)
+        props.setNodeTick((t) => t + 1)
+        const succeeded = results.filter((r) => r.success).length
+        const failed = results.filter((r) => !r.success).length
+        const summary = results
+            .map((r) => (r.success ? `OK: ${r.message}` : `FAIL: ${r.message}`))
+            .join('\n')
+        return `Bulk: ${succeeded} succeeded, ${failed} failed\n${summary}`
+    }
+
     const executeListScripts = (): string => {
         const store = getAssetStore()
         const SCRIPT_EXT = ['.ts', '.tsx', '.js', '.jsx']
@@ -693,6 +770,65 @@ export default function AIPanel(props: Readonly<{
         return `Deleted script "${args.path}"`
     }
 
+    const MODEL_EXT = ['.glb', '.gltf', '.obj']
+
+    const executeListAssets = (): string => {
+        const store = getAssetStore()
+        const allFiles = store.collectFilePaths(store.tree())
+        const models = allFiles.filter((p) =>
+            MODEL_EXT.some((ext) => p.toLowerCase().endsWith(ext))
+        )
+        if (models.length === 0) return 'No model assets found in asset store.'
+        return JSON.stringify(models)
+    }
+
+    const resolveAsset: AssetResolver = (path) => getBlob(path)
+
+    const executeImportAsset = async (args: {
+        path: string
+        position?: [number, number, number]
+        scale?: [number, number, number]
+    }): Promise<string> => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+
+        const store = getAssetStore()
+        const node = store.findNode(store.tree(), args.path)
+        if (!node || node.type !== 'file') {
+            throw new Error(`Asset "${args.path}" not found in asset store`)
+        }
+
+        const blob = await getBlob(args.path)
+        if (!blob) throw new Error(`Could not read asset "${args.path}"`)
+
+        const filename = args.path.slice(args.path.lastIndexOf('/') + 1)
+        const lastSlash = args.path.lastIndexOf('/')
+        const assetDir = lastSlash > 0 ? args.path.slice(0, lastSlash) : ''
+
+        const root = await importModelToScene(
+            s,
+            blob,
+            filename,
+            assetDir,
+            resolveAsset
+        )
+
+        if (args.position) {
+            root.position.set(
+                args.position[0],
+                args.position[1],
+                args.position[2]
+            )
+        }
+        if (args.scale) {
+            root.scaling.set(args.scale[0], args.scale[1], args.scale[2])
+        }
+
+        props.setSelectedNode(root)
+        props.setNodeTick((t) => t + 1)
+        return `Imported "${args.path}" as "${root.name}"`
+    }
+
     const executeTool = async (
         toolName: string,
         input: unknown
@@ -710,6 +846,16 @@ export default function AIPanel(props: Readonly<{
                 return executeUpdateNode(input as UpdateNodeOptions)
             case 'delete_node':
                 return executeDeleteNode(input as { name: string })
+            case 'create_group':
+                return executeCreateGroup(input as CreateGroupOptions)
+            case 'set_parent':
+                return executeSetParent(
+                    input as { node: string; parent: string | null }
+                )
+            case 'bulk_scene':
+                return executeBulkScene(
+                    input as { operations: BulkOperation[] }
+                )
             case 'list_scripts':
                 return executeListScripts()
             case 'attach_script':
@@ -722,6 +868,10 @@ export default function AIPanel(props: Readonly<{
                 return executeEditScript(input as { path: string; old_string: string; new_string: string })
             case 'delete_script':
                 return executeDeleteScript(input as { path: string })
+            case 'list_assets':
+                return executeListAssets()
+            case 'import_asset':
+                return executeImportAsset(input as { path: string; position?: [number, number, number]; scale?: [number, number, number] })
             default:
                 throw new Error(`Unknown tool: ${toolName}`)
         }

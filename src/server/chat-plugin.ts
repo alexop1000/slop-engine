@@ -25,39 +25,92 @@ function buildSystemPrompt(projectRoot: string): string {
 ## Your Capabilities
 
 - Inspect the current scene with get_scene
-- Add meshes (box, sphere, cylinder, cone, torus, plane, ground) with add_mesh
+- Add meshes (box, sphere, cylinder, cone, torus, pyramid, plane, ground) with add_mesh
 - Add lights (point, directional, spot, hemispheric) with add_light
+- Create empty group nodes with create_group, organize hierarchy with set_parent
+- Build complex scenes in one call with bulk_scene
+- Import 3D models (.glb, .gltf, .obj) from the asset store with import_asset
+- List available model assets with list_assets
 - Modify any node's position, rotation, scale, color, or name with update_node
 - Remove nodes from the scene with delete_node
 - Create, read, edit, and delete scripts
 - Attach and detach scripts to/from nodes
-- Explain the scripting API and game-dev patterns
 
 ## Scene Manipulation
 
 When manipulating the scene:
 
 - Call get_scene first to understand what's already in the scene before making changes
+- **For complex builds (3+ objects), use bulk_scene** — it runs many operations in one call
 - Node names are case-sensitive and must match exactly
-- Positions, rotations, and scales are [x, y, z] arrays
+- Positions and scales are [x, y, z] arrays
 - Colors are [r, g, b] arrays with values 0 to 1
 - The Y axis points up. Ground is at y=0. Objects default to y=1
 - After creating or modifying objects, briefly confirm what was done
 
+### Rotation
+- **Always use rotationDegrees** (e.g. \`rotationDegrees: [0, 90, 0]\` for 90° around Y)
+- The \`rotation\` field uses radians — avoid it unless you need precise radian values
+
+### Mesh Sizes
+Use the \`size\` parameter on add_mesh to set dimensions directly instead of scale:
+- **box**: \`size: { width: X, height: Y, depth: Z }\` — default 1 each
+- **sphere**: \`size: { diameter: D }\` — default 1
+- **cylinder/cone**: \`size: { height: H, diameter: D }\` — default 1 each
+- **torus**: \`size: { diameter: D, thickness: T }\` — default 1, 0.3
+- **pyramid**: \`size: { height: H, diameter: D }\` — default 1 each (4-sided base)
+- **plane**: \`size: { width: W, height: H }\` — default 1 each
+- **ground**: \`size: { width: W, height: H }\` — default 10 each
+
+### Grouping & Hierarchy
+- Use \`create_group\` to make empty container nodes
+- Use \`set_parent\` to make nodes children of a group
+- Moving/rotating a parent moves all its children
+- Always group related objects (e.g. all parts of a house under a "house" group)
+
+### Bulk Operations
+Use \`bulk_scene\` when creating or modifying 3+ objects. It takes an \`operations\` array where each item has an \`action\` field plus that action's parameters. Operations run sequentially, so later ones can reference nodes created earlier.
+
+**Always give explicit names** to nodes in bulk operations so you can reference them in set_parent.
+
+### Example: Building a House with bulk_scene
+\`\`\`json
+{ "operations": [
+  { "action": "create_group", "name": "house" },
+  { "action": "add_mesh", "type": "box", "name": "floor", "size": { "width": 6, "height": 0.1, "depth": 6 }, "position": [0, 0, 0], "color": [0.45, 0.32, 0.2] },
+  { "action": "add_mesh", "type": "box", "name": "wall_front", "size": { "width": 6, "height": 3, "depth": 0.2 }, "position": [0, 1.5, -3], "color": [0.9, 0.85, 0.7] },
+  { "action": "add_mesh", "type": "box", "name": "wall_back", "size": { "width": 6, "height": 3, "depth": 0.2 }, "position": [0, 1.5, 3], "color": [0.9, 0.85, 0.7] },
+  { "action": "add_mesh", "type": "box", "name": "wall_left", "size": { "width": 0.2, "height": 3, "depth": 6 }, "position": [-3, 1.5, 0], "color": [0.9, 0.85, 0.7] },
+  { "action": "add_mesh", "type": "box", "name": "wall_right", "size": { "width": 0.2, "height": 3, "depth": 6 }, "position": [3, 1.5, 0], "color": [0.9, 0.85, 0.7] },
+  { "action": "add_mesh", "type": "cone", "name": "roof", "size": { "height": 2, "diameter": 9 }, "position": [0, 4, 0], "color": [0.7, 0.2, 0.1] },
+  { "action": "set_parent", "node": "floor", "parent": "house" },
+  { "action": "set_parent", "node": "wall_front", "parent": "house" },
+  { "action": "set_parent", "node": "wall_back", "parent": "house" },
+  { "action": "set_parent", "node": "wall_left", "parent": "house" },
+  { "action": "set_parent", "node": "wall_right", "parent": "house" },
+  { "action": "set_parent", "node": "roof", "parent": "house" }
+]}
+\`\`\`
+
 ### Tool Reference
 
-- \`get_scene\` — Returns a JSON snapshot of all nodes in the scene (names, types, transforms, colors, hierarchy)
-- \`add_mesh\` — Create a mesh. Required: \`type\` ("box"|"sphere"|"cylinder"|"cone"|"torus"|"plane"|"ground"). Optional: \`name\`, \`position\`, \`rotation\`, \`scale\`, \`color\`
-- \`add_light\` — Create a light. Required: \`type\` ("point"|"directional"|"spot"|"hemispheric"). Optional: \`name\`, \`position\`, \`direction\`, \`intensity\`, \`color\`
-- \`update_node\` — Update a node by name. Required: \`name\`. Optional: \`position\`, \`rotation\`, \`scale\`, \`color\`, \`intensity\`, \`rename\`
-- \`delete_node\` — Delete a node by name. Required: \`name\`
-- \`create_script\` — Create a new TypeScript script file. Required: \`path\`, \`content\`
-- \`attach_script\` — Attach a script to a node. Required: \`node\` (name), \`script\` (path)
-- \`detach_script\` — Detach a script from a node. Required: \`node\` (name), \`script\` (path)
-- \`list_scripts\` — List all script files in the asset store
-- \`read_script\` — Read a script's source code. Required: \`path\`
-- \`edit_script\` — Edit a script via find-and-replace. Required: \`path\`, \`old_string\`, \`new_string\`
-- \`delete_script\` — Delete a script file (also detaches from all nodes). Required: \`path\`
+- \`get_scene\` — JSON snapshot of all nodes (names, types, transforms, colors, hierarchy)
+- \`add_mesh\` — Create a mesh. Required: \`type\`. Optional: \`name\`, \`position\`, \`rotationDegrees\`, \`scale\`, \`color\`, \`size\`
+- \`add_light\` — Create a light. Required: \`type\`. Optional: \`name\`, \`position\`, \`direction\`, \`intensity\`, \`color\`
+- \`update_node\` — Update a node. Required: \`name\`. Optional: \`position\`, \`rotationDegrees\`, \`scale\`, \`color\`, \`intensity\`, \`rename\`
+- \`delete_node\` — Delete a node. Required: \`name\`
+- \`create_group\` — Create an empty group node. Required: \`name\`. Optional: \`position\`
+- \`set_parent\` — Set a node's parent. Required: \`node\`, \`parent\` (name or null to unparent)
+- \`bulk_scene\` — Execute multiple operations in one call. Required: \`operations\` array. Each element has \`action\` plus that action's params
+- \`create_script\` — Create a TypeScript script file. Required: \`path\`, \`content\`
+- \`attach_script\` — Attach a script to a node. Required: \`node\`, \`script\` (path)
+- \`detach_script\` — Detach a script from a node. Required: \`node\`, \`script\`
+- \`list_scripts\` — List all script files
+- \`read_script\` — Read a script's source. Required: \`path\`
+- \`edit_script\` — Find-and-replace in a script. Required: \`path\`, \`old_string\`, \`new_string\`
+- \`delete_script\` — Delete a script file. Required: \`path\`
+- \`list_assets\` — List importable 3D models (.glb, .gltf, .obj)
+- \`import_asset\` — Import a model into the scene. Required: \`path\`. Optional: \`position\`, \`scale\`
 
 ## Creating Scripts
 
@@ -143,14 +196,23 @@ const getSceneTool = {
 }
 
 const addMeshTool = {
-    description: 'Create a new mesh (3D shape) in the scene.',
+    description:
+        'Create a new mesh (3D shape) in the scene. Use size to set dimensions directly.',
     inputSchema: jsonSchema<{
         type: string
         name?: string
         position?: [number, number, number]
         rotation?: [number, number, number]
+        rotationDegrees?: [number, number, number]
         scale?: [number, number, number]
         color?: [number, number, number]
+        size?: {
+            width?: number
+            height?: number
+            depth?: number
+            diameter?: number
+            thickness?: number
+        }
     }>({
         type: 'object',
         properties: {
@@ -162,6 +224,7 @@ const addMeshTool = {
                     'cylinder',
                     'cone',
                     'torus',
+                    'pyramid',
                     'plane',
                     'ground',
                 ],
@@ -178,21 +241,58 @@ const addMeshTool = {
                 description:
                     'Position as [x, y, z]. Defaults to [0, 1, 0] for most meshes.',
             },
+            rotationDegrees: {
+                type: 'array',
+                items: { type: 'number' },
+                description:
+                    'Rotation in degrees as [x, y, z]. Preferred over rotation.',
+            },
             rotation: {
                 type: 'array',
                 items: { type: 'number' },
-                description: 'Rotation in radians as [x, y, z].',
+                description:
+                    'Rotation in radians as [x, y, z]. Prefer rotationDegrees instead.',
             },
             scale: {
                 type: 'array',
                 items: { type: 'number' },
-                description: 'Scale as [x, y, z]. Defaults to [1, 1, 1].',
+                description:
+                    'Scale multiplier as [x, y, z]. Defaults to [1, 1, 1]. Prefer size for initial dimensions.',
             },
             color: {
                 type: 'array',
                 items: { type: 'number' },
                 description:
                     'Diffuse color as [r, g, b], each 0-1. Defaults to gray.',
+            },
+            size: {
+                type: 'object',
+                properties: {
+                    width: {
+                        type: 'number',
+                        description: 'Width (X axis). For box, plane, ground.',
+                    },
+                    height: {
+                        type: 'number',
+                        description:
+                            'Height (Y axis). For box, cylinder, cone, plane, ground.',
+                    },
+                    depth: {
+                        type: 'number',
+                        description: 'Depth (Z axis). For box.',
+                    },
+                    diameter: {
+                        type: 'number',
+                        description:
+                            'Diameter. For sphere, cylinder, cone, torus.',
+                    },
+                    thickness: {
+                        type: 'number',
+                        description: 'Tube thickness. For torus.',
+                    },
+                },
+                description:
+                    'Mesh dimensions. Fields vary by type: box(width,height,depth), sphere(diameter), cylinder/cone(height,diameter), torus(diameter,thickness), plane/ground(width,height).',
             },
         },
         required: ['type'],
@@ -252,6 +352,7 @@ const updateNodeTool = {
         name: string
         position?: [number, number, number]
         rotation?: [number, number, number]
+        rotationDegrees?: [number, number, number]
         scale?: [number, number, number]
         color?: [number, number, number]
         intensity?: number
@@ -269,10 +370,17 @@ const updateNodeTool = {
                 items: { type: 'number' },
                 description: 'New position as [x, y, z].',
             },
+            rotationDegrees: {
+                type: 'array',
+                items: { type: 'number' },
+                description:
+                    'New rotation in degrees as [x, y, z]. Preferred over rotation.',
+            },
             rotation: {
                 type: 'array',
                 items: { type: 'number' },
-                description: 'New rotation in radians as [x, y, z].',
+                description:
+                    'New rotation in radians as [x, y, z]. Prefer rotationDegrees instead.',
             },
             scale: {
                 type: 'array',
@@ -421,6 +529,128 @@ const deleteScriptTool = {
     }),
 }
 
+const listAssetsTool = {
+    description:
+        'List all model files available in the asset store that can be imported into the scene. Returns file paths for .glb, .gltf, .obj models.',
+    inputSchema: jsonSchema<Record<string, never>>({
+        type: 'object',
+        properties: {},
+    }),
+}
+
+const importAssetTool = {
+    description:
+        'Import a 3D model from the asset store into the scene. The model file must already exist in the asset store (use list_assets to see available models). Supports .glb, .gltf, and .obj formats. OBJ files with .mtl materials and textures are handled automatically.',
+    inputSchema: jsonSchema<{
+        path: string
+        position?: [number, number, number]
+        scale?: [number, number, number]
+    }>({
+        type: 'object',
+        properties: {
+            path: {
+                type: 'string',
+                description:
+                    'The asset file path of the model (e.g. "models/car.glb"). Use list_assets to find available models.',
+            },
+            position: {
+                type: 'array',
+                items: { type: 'number' },
+                description:
+                    'Position to place the model at as [x, y, z]. Defaults to [0, 0, 0].',
+            },
+            scale: {
+                type: 'array',
+                items: { type: 'number' },
+                description: 'Scale as [x, y, z]. Defaults to [1, 1, 1].',
+            },
+        },
+        required: ['path'],
+    }),
+}
+
+const createGroupTool = {
+    description:
+        'Create an empty TransformNode group for organizing objects. Use set_parent to add children.',
+    inputSchema: jsonSchema<{
+        name: string
+        position?: [number, number, number]
+    }>({
+        type: 'object',
+        properties: {
+            name: {
+                type: 'string',
+                description: 'Name for the group node.',
+            },
+            position: {
+                type: 'array',
+                items: { type: 'number' },
+                description: 'Position as [x, y, z]. Defaults to [0, 0, 0].',
+            },
+        },
+        required: ['name'],
+    }),
+}
+
+const setParentTool = {
+    description:
+        'Set the parent of a node, making it a child of another node. Useful for grouping. Pass parent as null to unparent.',
+    inputSchema: jsonSchema<{
+        node: string
+        parent: string | null
+    }>({
+        type: 'object',
+        properties: {
+            node: {
+                type: 'string',
+                description: 'Name of the node to reparent.',
+            },
+            parent: {
+                type: ['string', 'null'] as unknown as 'string',
+                description:
+                    'Name of the new parent node, or null to unparent.',
+            },
+        },
+        required: ['node', 'parent'],
+    }),
+}
+
+const bulkSceneTool = {
+    description:
+        'Execute multiple scene operations in one call. Use this for complex scene construction (building a house, landscape, etc). Operations run sequentially so later ones can reference nodes created by earlier ones. ALWAYS give explicit names to nodes you will reference later. Supported actions: add_mesh, add_light, update_node, delete_node, create_group, set_parent. Each operation uses the same parameters as the corresponding individual tool, plus an "action" field.',
+    inputSchema: jsonSchema<{
+        operations: Array<{ action: string; [key: string]: unknown }>
+    }>({
+        type: 'object',
+        properties: {
+            operations: {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    properties: {
+                        action: {
+                            type: 'string',
+                            enum: [
+                                'add_mesh',
+                                'add_light',
+                                'update_node',
+                                'delete_node',
+                                'create_group',
+                                'set_parent',
+                            ],
+                            description: 'The operation type.',
+                        },
+                    },
+                    required: ['action'],
+                },
+                description:
+                    'Array of operations. Each has "action" plus that action\'s parameters (e.g. add_mesh operations take type, name, position, size, color, rotationDegrees, etc).',
+            },
+        },
+        required: ['operations'],
+    }),
+}
+
 // ── Plugin ──────────────────────────────────────────────────────────
 
 export function chatApiPlugin(): Plugin {
@@ -471,12 +701,17 @@ export function chatApiPlugin(): Plugin {
                             add_light: addLightTool,
                             update_node: updateNodeTool,
                             delete_node: deleteNodeTool,
+                            create_group: createGroupTool,
+                            set_parent: setParentTool,
+                            bulk_scene: bulkSceneTool,
                             attach_script: attachScriptTool,
                             detach_script: detachScriptTool,
                             read_script: readScriptTool,
                             edit_script: editScriptTool,
                             list_scripts: listScriptsTool,
                             delete_script: deleteScriptTool,
+                            list_assets: listAssetsTool,
+                            import_asset: importAssetTool,
                         },
                         messages: modelMessages,
                     })

@@ -11,7 +11,11 @@ import {
     SpotLight,
     HemisphericLight,
 } from 'babylonjs'
-import { addMeshToScene, addLightToScene, nextName } from '../../scene/SceneOperations'
+import {
+    addMeshToScene,
+    addLightToScene,
+    nextName,
+} from '../../scene/SceneOperations'
 import {
     cube,
     sun,
@@ -145,11 +149,7 @@ export default function ScenePanel(
             light.parent = node.parent
             props.setSelectedNode(light)
         } else if (node instanceof PointLight) {
-            const light = new PointLight(
-                copyName,
-                node.position.clone(),
-                scene
-            )
+            const light = new PointLight(copyName, node.position.clone(), scene)
             light.intensity = node.intensity
             light.diffuse = node.diffuse.clone()
             light.specular = node.specular.clone()
@@ -195,6 +195,7 @@ export default function ScenePanel(
             { id: 'add-cylinder', label: 'Cylinder' },
             { id: 'add-cone', label: 'Cone' },
             { id: 'add-torus', label: 'Torus' },
+            { id: 'add-pyramid', label: 'Pyramid' },
             { id: 'add-plane', label: 'Plane' },
             { id: 'add-ground', label: 'Ground' },
             { id: 'add-sep', label: '', separator: true },
@@ -232,6 +233,7 @@ export default function ScenePanel(
                 'cylinder',
                 'cone',
                 'torus',
+                'pyramid',
                 'plane',
                 'ground',
             ]
@@ -380,6 +382,13 @@ export default function ScenePanel(
                                 onClick={() => addMesh('torus')}
                             >
                                 Torus
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addMesh('pyramid')}
+                            >
+                                Pyramid
                             </button>
                             <button
                                 type="button"
