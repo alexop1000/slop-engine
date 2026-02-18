@@ -297,18 +297,34 @@ export default function Home() {
                             const s = scene()
                             if (!s) return
                             if (isPlaying()) {
-                                // Stop scripts first
+                                // Stop scripts first so update() can't
+                                // mutate transforms after we restore them
                                 if (_scriptRuntime) {
                                     _scriptRuntime.stop()
                                     _scriptRuntime = null
                                 }
 
-                                for (const [mesh, agg] of _physicsAggregates) {
+                                // Dispose physics aggregates before restoring
+                                // transforms so the engine can't overwrite
+                                // positions in a pending physics step
+                                for (const [, agg] of _physicsAggregates) {
                                     agg.dispose()
-                                    const snap = _transformSnapshots.get(mesh)
-                                    if (snap) restoreTransform(mesh, snap)
                                 }
                                 _physicsAggregates.clear()
+
+                                // Wait one frame so the engine flushes any
+                                // in-flight physics/render updates, then
+                                // restore the saved transforms
+                                await new Promise<void>((resolve) =>
+                                    requestAnimationFrame(() => resolve())
+                                )
+
+                                for (const [
+                                    mesh,
+                                    snap,
+                                ] of _transformSnapshots) {
+                                    restoreTransform(mesh, snap)
+                                }
                                 _transformSnapshots.clear()
 
                                 gizmoManager()!.attachToMesh(
