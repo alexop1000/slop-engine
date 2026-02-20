@@ -31,6 +31,13 @@ export class InputManager {
     private _pendingDeltaX = 0
     private _pendingDeltaY = 0
 
+    // ----- Pointer lock ------------------------------------------------------
+
+    /** Whether the pointer is currently locked. */
+    isMouseLocked = false
+
+    private _onPointerLockChange: (() => void) | null = null
+
     // ----- Listener refs (for cleanup) ----------------------------------------
 
     private _onKeyDown: ((e: KeyboardEvent) => void) | null = null
@@ -57,6 +64,21 @@ export class InputManager {
 
     isMouseButtonDown(button: number): boolean {
         return this._mouseButtons.has(button)
+    }
+
+    /** Request pointer lock on the attached element. */
+    lockMouse(): void {
+        const el = this._target as HTMLElement | null
+        if (el && !this.isMouseLocked) {
+            el.requestPointerLock()
+        }
+    }
+
+    /** Exit pointer lock. */
+    unlockMouse(): void {
+        if (this.isMouseLocked) {
+            document.exitPointerLock()
+        }
     }
 
     // ----- Lifecycle ---------------------------------------------------------
@@ -97,23 +119,57 @@ export class InputManager {
         // regardless of canvas focus state
         globalThis.addEventListener('keydown', this._onKeyDown)
         globalThis.addEventListener('keyup', this._onKeyUp)
-        target.addEventListener('pointermove', this._onPointerMove as EventListener)
-        target.addEventListener('pointerdown', this._onPointerDown as EventListener)
+        target.addEventListener(
+            'pointermove',
+            this._onPointerMove as EventListener
+        )
+        target.addEventListener(
+            'pointerdown',
+            this._onPointerDown as EventListener
+        )
         target.addEventListener('pointerup', this._onPointerUp as EventListener)
         globalThis.addEventListener('blur', this._onBlur)
+
+        // Pointer lock state tracking
+        this._onPointerLockChange = () => {
+            this.isMouseLocked = document.pointerLockElement === target
+        }
+        document.addEventListener(
+            'pointerlockchange',
+            this._onPointerLockChange
+        )
     }
 
     /** Stop listening and clear all state. */
     detach(): void {
-        if (this._onKeyDown) globalThis.removeEventListener('keydown', this._onKeyDown)
-        if (this._onKeyUp) globalThis.removeEventListener('keyup', this._onKeyUp)
+        if (this._onKeyDown)
+            globalThis.removeEventListener('keydown', this._onKeyDown)
+        if (this._onKeyUp)
+            globalThis.removeEventListener('keyup', this._onKeyUp)
         if (this._target && this._onPointerMove)
-            this._target.removeEventListener('pointermove', this._onPointerMove as EventListener)
+            this._target.removeEventListener(
+                'pointermove',
+                this._onPointerMove as EventListener
+            )
         if (this._target && this._onPointerDown)
-            this._target.removeEventListener('pointerdown', this._onPointerDown as EventListener)
+            this._target.removeEventListener(
+                'pointerdown',
+                this._onPointerDown as EventListener
+            )
         if (this._target && this._onPointerUp)
-            this._target.removeEventListener('pointerup', this._onPointerUp as EventListener)
+            this._target.removeEventListener(
+                'pointerup',
+                this._onPointerUp as EventListener
+            )
         if (this._onBlur) globalThis.removeEventListener('blur', this._onBlur)
+        if (this._onPointerLockChange)
+            document.removeEventListener(
+                'pointerlockchange',
+                this._onPointerLockChange
+            )
+
+        // Release pointer lock if still active
+        if (this.isMouseLocked) document.exitPointerLock()
 
         this._onKeyDown = null
         this._onKeyUp = null
@@ -121,7 +177,9 @@ export class InputManager {
         this._onPointerDown = null
         this._onPointerUp = null
         this._onBlur = null
+        this._onPointerLockChange = null
         this._target = null
+        this.isMouseLocked = false
 
         this._keysDown.clear()
         this._keysPressed.clear()

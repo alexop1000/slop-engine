@@ -195,8 +195,7 @@ function ToolCallIndicator(props: Readonly<{ part: ToolUIPart }>) {
             case 'set_parent': {
                 const n = inp?.node as string | undefined
                 const p = inp?.parent as string | undefined
-                if (isError())
-                    return `Failed to set parent of "${n ?? 'node'}"`
+                if (isError()) return `Failed to set parent of "${n ?? 'node'}"`
                 if (isDone())
                     return p
                         ? `Parented "${n}" under "${p}"`
@@ -217,14 +216,16 @@ function ToolCallIndicator(props: Readonly<{ part: ToolUIPart }>) {
                 const s = inp?.script as string | undefined
                 const n = inp?.node as string | undefined
                 if (isError()) return `Failed to attach ${s ?? 'script'}`
-                if (isDone()) return `Attached ${s ?? 'script'} to "${n ?? 'node'}"`
+                if (isDone())
+                    return `Attached ${s ?? 'script'} to "${n ?? 'node'}"`
                 return `Attaching ${s ?? 'script'}…`
             }
             case 'detach_script': {
                 const s = inp?.script as string | undefined
                 const n = inp?.node as string | undefined
                 if (isError()) return `Failed to detach ${s ?? 'script'}`
-                if (isDone()) return `Detached ${s ?? 'script'} from "${n ?? 'node'}"`
+                if (isDone())
+                    return `Detached ${s ?? 'script'} from "${n ?? 'node'}"`
                 return `Detaching ${s ?? 'script'}…`
             }
             case 'read_script': {
@@ -295,6 +296,37 @@ function ToolCallIndicator(props: Readonly<{ part: ToolUIPart }>) {
 
 // ── Chat message component ───────────────────────────────────────────
 
+/** Group parts into ordered segments preserving their original position */
+type MessageSegment =
+    | { kind: 'text'; text: string }
+    | { kind: 'tool'; part: ToolUIPart }
+
+function groupPartsInOrder(
+    parts: Array<{ type: string; text?: string; [key: string]: unknown }>
+): MessageSegment[] {
+    const segments: MessageSegment[] = []
+    let pendingText = ''
+
+    const flushText = () => {
+        if (pendingText) {
+            segments.push({ kind: 'text', text: pendingText })
+            pendingText = ''
+        }
+    }
+
+    for (const part of parts) {
+        if (isToolPart(part)) {
+            flushText()
+            segments.push({ kind: 'tool', part: part as unknown as ToolUIPart })
+        } else if (part.type === 'text' && part.text) {
+            pendingText += part.text
+        }
+    }
+    flushText()
+
+    return segments
+}
+
 function ChatMessage(
     props: Readonly<{
         role: string
@@ -303,51 +335,59 @@ function ChatMessage(
 ) {
     const isUser = () => props.role === 'user'
 
-    const fullText = () =>
-        props.parts
-            .filter((p) => p.type === 'text' && p.text)
-            .map((p) => p.text as string)
-            .join('')
-
-    const toolParts = () =>
-        props.parts.filter(isToolPart) as unknown as ToolUIPart[]
-
-    const parsed = () => parseContent(fullText())
-    const hasText = () => fullText().length > 0
+    const segments = () => groupPartsInOrder(props.parts)
+    const hasContent = () =>
+        props.parts.some(
+            (p) =>
+                isToolPart(p) ||
+                (p.type === 'text' && (p.text?.length ?? 0) > 0)
+        )
 
     return (
-        <div class={`flex ${isUser() ? 'justify-end' : 'justify-start'} mb-3`}>
+        <Show when={hasContent()}>
             <div
-                class={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                    isUser()
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-800 text-gray-100'
-                }`}
+                class={`flex ${
+                    isUser() ? 'justify-end' : 'justify-start'
+                } mb-3`}
             >
-                <Show when={!isUser()}>
-                    <span class="text-xs text-gray-400 font-medium mb-1 block">
-                        AI
-                    </span>
-                </Show>
-                <For each={toolParts()}>
-                    {(part) => <ToolCallIndicator part={part} />}
-                </For>
-                <Show when={hasText()}>
-                    <For each={parsed()}>
-                        {(part) =>
-                            part.kind === 'code' ? (
-                                <CodeBlock lang={part.lang} code={part.code} />
+                <div
+                    class={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                        isUser()
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-800 text-gray-100'
+                    }`}
+                >
+                    <Show when={!isUser()}>
+                        <span class="text-xs text-gray-400 font-medium mb-1 block">
+                            AI
+                        </span>
+                    </Show>
+                    <For each={segments()}>
+                        {(seg) =>
+                            seg.kind === 'tool' ? (
+                                <ToolCallIndicator part={seg.part} />
                             ) : (
-                                <div
-                                    class="md-content"
-                                    innerHTML={part.html}
-                                />
+                                <For each={parseContent(seg.text)}>
+                                    {(part) =>
+                                        part.kind === 'code' ? (
+                                            <CodeBlock
+                                                lang={part.lang}
+                                                code={part.code}
+                                            />
+                                        ) : (
+                                            <div
+                                                class="md-content"
+                                                innerHTML={part.html}
+                                            />
+                                        )
+                                    }
+                                </For>
                             )
                         }
                     </For>
-                </Show>
+                </div>
             </div>
-        </div>
+        </Show>
     )
 }
 
@@ -408,15 +448,22 @@ function HistoryItem(
 
 // ── Main AI Panel ────────────────────────────────────────────────────
 
-export default function AIPanel(props: Readonly<{
-    scene: Accessor<Scene | undefined>
-    selectedNode: Accessor<Node | undefined>
-    setSelectedNode: (node: Node | undefined) => void
-    setNodeTick: Setter<number>
-}>) {
+export default function AIPanel(
+    props: Readonly<{
+        scene: Accessor<Scene | undefined>
+        selectedNode: Accessor<Node | undefined>
+        setSelectedNode: (node: Node | undefined) => void
+        setNodeTick: Setter<number>
+    }>
+) {
     const [input, setInput] = createSignal('')
     const [showHistory, setShowHistory] = createSignal(false)
     const [sessions, setSessions] = createSignal<ChatSession[]>([])
+    const recentAutoSendKeys: string[] = []
+    let roundTripCount = 0
+    const MAX_ROUND_TRIPS = 12
+    const consecutiveErrorCounts = new Map<string, number>()
+    const MAX_CONSECUTIVE_ERRORS = 3
     const [activeChatId, setActiveChatId] = makePersisted(
         createSignal(generateChatId()),
         { name: 'slop-ai-active-chat' }
@@ -445,8 +492,7 @@ export default function AIPanel(props: Readonly<{
 
             const allResolved = toolParts.every(
                 (t) =>
-                    t.state === 'output-available' ||
-                    t.state === 'output-error'
+                    t.state === 'output-available' || t.state === 'output-error'
             )
             if (!allResolved) return false
 
@@ -460,7 +506,64 @@ export default function AIPanel(props: Readonly<{
                 .slice(lastToolIdx + 1)
                 .some((p) => p.type === 'text' && (p.text?.length ?? 0) > 0)
 
-            return !hasTextAfterTools
+            if (hasTextAfterTools) return false
+
+            // Build a key representing the exact tool call pattern
+            const toolKey = toolParts
+                .map((t) => {
+                    const name = getToolNameFromPart(t)
+                    return `${name}:${JSON.stringify(t.input ?? {})}`
+                })
+                .sort((a, b) => a.localeCompare(b))
+                .join('|')
+
+            // If the model produced narration text BEFORE/alongside tools
+            // and this tool pattern was already auto-sent, the model is
+            // stuck in a describe-then-call loop — stop it.
+            const hasAnyText = parts.some(
+                (p) => p.type === 'text' && (p.text?.trim().length ?? 0) > 0
+            )
+            if (hasAnyText && recentAutoSendKeys.includes(toolKey)) return false
+
+            // Block if this exact tool pattern was the immediately
+            // previous auto-send (consecutive duplicate)
+            if (
+                recentAutoSendKeys.length > 0 &&
+                recentAutoSendKeys.at(-1) === toolKey
+            )
+                return false
+
+            // Block if this pattern has appeared 2+ times in the
+            // recent sliding window
+            const repeatCount = recentAutoSendKeys.filter(
+                (k) => k === toolKey
+            ).length
+            if (repeatCount >= 2) return false
+
+            // Track consecutive errors per tool+path to stop loops
+            // where the model keeps retrying with slight variations
+            for (const t of toolParts) {
+                const name = getToolNameFromPart(t)
+                const inp = t.input as Record<string, unknown> | undefined
+                const errorKey = `${name}:${(inp?.path as string) ?? ''}`
+                if (t.state === 'output-error') {
+                    const count =
+                        (consecutiveErrorCounts.get(errorKey) ?? 0) + 1
+                    consecutiveErrorCounts.set(errorKey, count)
+                    if (count >= MAX_CONSECUTIVE_ERRORS) return false
+                } else {
+                    consecutiveErrorCounts.set(errorKey, 0)
+                }
+            }
+
+            // Hard cap as a safety net
+            if (roundTripCount >= MAX_ROUND_TRIPS) return false
+            roundTripCount++
+
+            recentAutoSendKeys.push(toolKey)
+            if (recentAutoSendKeys.length > 8) recentAutoSendKeys.shift()
+
+            return true
         },
     })
 
@@ -539,6 +642,20 @@ export default function AIPanel(props: Readonly<{
 
     const handledToolCalls = new Set<string>()
 
+    const typeCheckContent = async (content: string): Promise<string[]> => {
+        try {
+            const res = await fetch('/api/typecheck', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content }),
+            })
+            const { errors } = (await res.json()) as { errors: string[] }
+            return errors
+        } catch {
+            return []
+        }
+    }
+
     const executeCreateScript = async (args: {
         path: string
         content: string
@@ -574,6 +691,16 @@ export default function AIPanel(props: Readonly<{
             await openScriptFile(args.path)
         }
 
+        // Type-check the script and report errors back to the AI
+        const errors = await typeCheckContent(args.content)
+        if (errors.length > 0) {
+            return `Script created at "${
+                args.path
+            }" but has TypeScript errors:\n${errors.join(
+                '\n'
+            )}\n\nFix these errors with edit_script.`
+        }
+
         return `Script created at "${args.path}"`
     }
 
@@ -606,7 +733,9 @@ export default function AIPanel(props: Readonly<{
         if (!s) throw new Error('Scene not initialized')
         updateNodeInScene(s, args)
         props.setNodeTick((t) => t + 1)
-        const fields = Object.keys(args).filter((k) => k !== 'name').join(', ')
+        const fields = Object.keys(args)
+            .filter((k) => k !== 'name')
+            .join(', ')
         return `Updated "${args.name}" (${fields})`
     }
 
@@ -711,7 +840,9 @@ export default function AIPanel(props: Readonly<{
         return `Detached "${args.script}" from "${args.node}"`
     }
 
-    const executeReadScript = async (args: { path: string }): Promise<string> => {
+    const executeReadScript = async (args: {
+        path: string
+    }): Promise<string> => {
         const blob = await getBlob(args.path)
         if (!blob) throw new Error(`Script "${args.path}" not found`)
         return await blob.text()
@@ -725,17 +856,37 @@ export default function AIPanel(props: Readonly<{
         const blob = await getBlob(args.path)
         if (!blob) throw new Error(`Script "${args.path}" not found`)
         const content = await blob.text()
-        if (!content.includes(args.old_string)) {
+
+        // Normalize line endings so \r\n vs \n mismatches don't cause false negatives
+        const normalizedContent = content.replace(/\r\n/g, '\n')
+        const normalizedOld = args.old_string.replace(/\r\n/g, '\n')
+
+        if (!normalizedContent.includes(normalizedOld)) {
             throw new Error(
-                `Could not find the specified text in "${args.path}"`
+                `Could not find the specified text in "${args.path}". Make sure you use read_script first and copy the exact text including whitespace. Current file content:\n\`\`\`\n${normalizedContent}\n\`\`\``
             )
         }
-        const updated = content.replace(args.old_string, args.new_string)
+        // Use a function replacement to avoid $-sequence interpretation in new_string
+        const updated = normalizedContent.replace(
+            normalizedOld,
+            () => args.new_string
+        )
         await setBlob(args.path, new Blob([updated], { type: 'text/plain' }))
         // Reload in script editor if this file is currently open
         if (openScript()?.path === args.path) {
             await openScriptFile(args.path)
         }
+
+        // Type-check the updated script and report errors back to the AI
+        const errors = await typeCheckContent(updated)
+        if (errors.length > 0) {
+            return `Edited "${
+                args.path
+            }" but it has TypeScript errors:\n${errors.join(
+                '\n'
+            )}\n\nFix these errors with edit_script.`
+        }
+
         return `Edited "${args.path}"`
     }
 
@@ -835,7 +986,9 @@ export default function AIPanel(props: Readonly<{
     ): Promise<string> => {
         switch (toolName) {
             case 'create_script':
-                return executeCreateScript(input as { path: string; content: string })
+                return executeCreateScript(
+                    input as { path: string; content: string }
+                )
             case 'get_scene':
                 return executeGetScene()
             case 'add_mesh':
@@ -859,19 +1012,35 @@ export default function AIPanel(props: Readonly<{
             case 'list_scripts':
                 return executeListScripts()
             case 'attach_script':
-                return executeAttachScript(input as { node: string; script: string })
+                return executeAttachScript(
+                    input as { node: string; script: string }
+                )
             case 'detach_script':
-                return executeDetachScript(input as { node: string; script: string })
+                return executeDetachScript(
+                    input as { node: string; script: string }
+                )
             case 'read_script':
                 return executeReadScript(input as { path: string })
             case 'edit_script':
-                return executeEditScript(input as { path: string; old_string: string; new_string: string })
+                return executeEditScript(
+                    input as {
+                        path: string
+                        old_string: string
+                        new_string: string
+                    }
+                )
             case 'delete_script':
                 return executeDeleteScript(input as { path: string })
             case 'list_assets':
                 return executeListAssets()
             case 'import_asset':
-                return executeImportAsset(input as { path: string; position?: [number, number, number]; scale?: [number, number, number] })
+                return executeImportAsset(
+                    input as {
+                        path: string
+                        position?: [number, number, number]
+                        scale?: [number, number, number]
+                    }
+                )
             default:
                 throw new Error(`Unknown tool: ${toolName}`)
         }
@@ -891,7 +1060,10 @@ export default function AIPanel(props: Readonly<{
 
                 const name = getToolNameFromPart(toolPart)
 
-                executeTool(name, (toolPart.input as Record<string, unknown>) ?? {})
+                executeTool(
+                    name,
+                    (toolPart.input as Record<string, unknown>) ?? {}
+                )
                     .then((result) => {
                         chat.addToolOutput({
                             tool: name,
@@ -924,6 +1096,9 @@ export default function AIPanel(props: Readonly<{
         const newId = generateChatId()
         setActiveChatId(newId)
         chat.setMessages([])
+        roundTripCount = 0
+        recentAutoSendKeys.length = 0
+        consecutiveErrorCounts.clear()
         setShowHistory(false)
         inputRef?.focus()
     }
@@ -995,6 +1170,9 @@ export default function AIPanel(props: Readonly<{
         if (!content || isWorking()) return
 
         setInput('')
+        roundTripCount = 0
+        recentAutoSendKeys.length = 0
+        consecutiveErrorCounts.clear()
         await chat.sendMessage({ text: content })
     }
 

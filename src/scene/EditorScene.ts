@@ -163,16 +163,15 @@ export function setupEditorCamera(
 
 export function setupRuntimeCamera(
     scene: Scene,
-    canvas: HTMLCanvasElement
+    _canvas: HTMLCanvasElement
 ): UniversalCamera {
     const existing = scene.cameras.find((c) => c.name === 'camera')
     if (existing) existing.dispose()
 
     const camera = new UniversalCamera('camera', new Vector3(0, 5, -20), scene)
     camera.applyGravity = false
-    scene.activeCamera = camera
+    camera.inertia = 0
     camera.inputs.clear()
-
-    camera.attachControl(canvas, true)
+    scene.activeCamera = camera
     return camera
 }

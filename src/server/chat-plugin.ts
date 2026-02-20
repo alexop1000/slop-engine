@@ -11,6 +11,7 @@ import { Readable } from 'node:stream'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ReadableStream as WebReadableStream } from 'node:stream/web'
+import ts from 'typescript'
 
 // ── System prompt ───────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ function buildSystemPrompt(projectRoot: string): string {
         'utf-8'
     )
 
-    return `You are Hippo - the AI assistant for Slop Engine, a web-based 3D scene editor.
+    return `You are Hippo - the AI assistant for Slop Engine, a 3D scene editor.
 
 ## Your Capabilities
 
@@ -160,7 +161,15 @@ ${apiDts}
 - Use \`this.deltaTime\` for all movement to ensure frame-rate independence
 - When referencing nodes by name, remind users the name must match their scene
 - If the user asks about scene setup or editor features (not scripting), answer conversationally without tools
-- After creating and attaching a script, briefly explain what it does`
+- After creating and attaching a script, briefly explain what it does
+
+## Type Error Feedback
+
+When you create or edit a script, the tool result will include any TypeScript type errors found in the code. If errors are reported, **immediately fix them** using edit_script. Common mistakes:
+- Using properties or methods that don't exist on a type (check the API reference above)
+- Wrong argument types (e.g. passing a number where a Vector3 is expected)
+- Missing required arguments
+- Accessing nullable values without checking for null first`
 }
 
 // ── Tool definitions ────────────────────────────────────────────────
@@ -478,7 +487,7 @@ const readScriptTool = {
 
 const editScriptTool = {
     description:
-        'Edit a script by replacing a specific string with a new string. Use read_script first to see the current code, then provide the exact text to find and what to replace it with. For multiple edits, call this tool multiple times.',
+        'Edit a script by find-and-replace. IMPORTANT: Always call read_script first so you have the exact current content. Provide `old_string` with the EXACT text to find (including whitespace, indentation, and newlines) and `new_string` with the replacement. Only the first occurrence is replaced. For multiple edits, call this tool multiple times.',
     inputSchema: jsonSchema<{
         path: string
         old_string: string
@@ -651,6 +660,75 @@ const bulkSceneTool = {
     }),
 }
 
+// ── TypeScript type-checking ─────────────────────────────────────────
+
+function typeCheckScript(
+    scriptContent: string,
+    apiDtsContent: string
+): string[] {
+    const virtualScriptPath = '/virtual/script.ts'
+    const virtualApiPath = '/virtual/api.d.ts'
+
+    const virtualFiles = new Map<string, string>([
+        [virtualScriptPath, scriptContent],
+        [virtualApiPath, apiDtsContent],
+    ])
+
+    const options: ts.CompilerOptions = {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        strict: false,
+        noEmit: true,
+        skipLibCheck: true,
+    }
+
+    const host = ts.createCompilerHost(options)
+    const origGetSourceFile = host.getSourceFile.bind(host)
+    const origFileExists = host.fileExists.bind(host)
+    const origReadFile = host.readFile.bind(host)
+
+    host.getSourceFile = (fileName, languageVersion, onError) => {
+        const virtual = virtualFiles.get(fileName)
+        if (virtual !== undefined) {
+            return ts.createSourceFile(fileName, virtual, languageVersion)
+        }
+        return origGetSourceFile(fileName, languageVersion, onError)
+    }
+
+    host.fileExists = (fileName) => {
+        if (virtualFiles.has(fileName)) return true
+        return origFileExists(fileName)
+    }
+
+    host.readFile = (fileName) => {
+        const virtual = virtualFiles.get(fileName)
+        if (virtual !== undefined) return virtual
+        return origReadFile(fileName)
+    }
+
+    const program = ts.createProgram(
+        [virtualScriptPath, virtualApiPath],
+        options,
+        host
+    )
+
+    const diagnostics = ts
+        .getPreEmitDiagnostics(program)
+        .filter(
+            (d) =>
+                d.file?.fileName === virtualScriptPath &&
+                d.category === ts.DiagnosticCategory.Error
+        )
+
+    return diagnostics.map((d) => {
+        const line = d.file
+            ? ts.getLineAndCharacterOfPosition(d.file, d.start!).line + 1
+            : '?'
+        const msg = ts.flattenDiagnosticMessageText(d.messageText, ' ')
+        return `Line ${line}: ${msg}`
+    })
+}
+
 // ── Plugin ──────────────────────────────────────────────────────────
 
 export function chatApiPlugin(): Plugin {
@@ -665,6 +743,50 @@ export function chatApiPlugin(): Plugin {
 
             const openrouter = createOpenRouter({
                 apiKey: env.OPENROUTER_API_KEY,
+            })
+
+            const apiDtsContent = readFileSync(
+                resolve(server.config.root, 'src/scripting/api.d.ts'),
+                'utf-8'
+            )
+
+            server.middlewares.use('/api/typecheck', async (req, res) => {
+                if (req.method !== 'POST') {
+                    res.statusCode = 405
+                    res.end('Method Not Allowed')
+                    return
+                }
+
+                try {
+                    const body = await new Promise<string>((resolve) => {
+                        let data = ''
+                        req.on('data', (chunk: Buffer) => {
+                            data += chunk.toString()
+                        })
+                        req.on('end', () => resolve(data))
+                    })
+
+                    const { content } = JSON.parse(body) as {
+                        content: string
+                    }
+                    const errors = typeCheckScript(content, apiDtsContent)
+
+                    res.setHeader('Content-Type', 'application/json')
+                    res.end(JSON.stringify({ errors }))
+                } catch (error) {
+                    console.error('[typecheck]', error)
+                    res.statusCode = 500
+                    res.setHeader('Content-Type', 'application/json')
+                    res.end(
+                        JSON.stringify({
+                            errors: [
+                                error instanceof Error
+                                    ? error.message
+                                    : 'Typecheck failed',
+                            ],
+                        })
+                    )
+                }
             })
 
             server.middlewares.use('/api/chat', async (req, res) => {

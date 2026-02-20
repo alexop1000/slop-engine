@@ -12,6 +12,7 @@ import {
 import { transform } from 'sucrase'
 import { Script } from './Script'
 import { InputManager } from './InputManager'
+import { RuntimeWorld } from './RuntimeWorld'
 import { getBlob } from '../assetStore'
 import { pushLog } from './consoleStore'
 
@@ -138,6 +139,7 @@ export class ScriptRuntime {
     private readonly _input = new InputManager()
     private _observer: Observer<Scene> | null = null
     private _startTime = 0
+    private _world: RuntimeWorld | null = null
 
     /**
      * Collect all nodes with `metadata.scripts`, compile each script,
@@ -146,6 +148,7 @@ export class ScriptRuntime {
     async start(scene: Scene, canvas: HTMLCanvasElement): Promise<void> {
         this._startTime = performance.now() / 1000
         this._input.attach(canvas)
+        this._world = new RuntimeWorld(scene)
 
         // Gather every node that has scripts attached
         const allNodes: Node[] = [
@@ -179,6 +182,7 @@ export class ScriptRuntime {
                     instance.camera = scene.activeCamera as UniversalCamera
                     instance.deltaTime = 0
                     instance.time = 0
+                    instance._world = this._world!
 
                     this._scripts.push({ instance, node, path })
                 } catch (err) {
@@ -240,6 +244,12 @@ export class ScriptRuntime {
         }
 
         this._scripts = []
+
+        // Dispose all runtime-created objects after user destroy() calls
+        if (this._world) {
+            this._world.disposeAll()
+            this._world = null
+        }
 
         if (this._observer) {
             this._observer.remove()

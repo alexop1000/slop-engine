@@ -73,6 +73,126 @@ declare class Script {
 
     /** Log a message to the console panel. */
     log(...args: any[]): void
+
+    // -- Instance Creation ----------------------------------------------------
+
+    /**
+     * Create a primitive mesh at runtime.
+     * Runtime objects are automatically destroyed when play stops.
+     *
+     * @param type  The primitive shape.
+     * @param options  Optional position, color, physics, etc.
+     * @returns The newly created Mesh.
+     *
+     * @example
+     * // Spawn a red sphere with physics
+     * const bullet = this.spawn('sphere', {
+     *     position: this.node.position.clone(),
+     *     color: rgb(1, 0, 0),
+     *     size: { diameter: 0.2 },
+     *     physics: { mass: 0.1 }
+     * })
+     * // Launch it forward
+     * const forward = this.camera.getDirection(Vector3.Forward())
+     * bullet.physicsBody!.setLinearVelocity(forward.scale(50))
+     */
+    spawn(
+        type: 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane',
+        options?: SpawnOptions
+    ): Mesh
+
+    /**
+     * Clone an existing mesh. The clone gets its own material copy.
+     * Runtime clones are automatically destroyed when play stops.
+     *
+     * @param source  The mesh to clone.
+     * @param name    Optional name for the clone.
+     * @returns The cloned Mesh.
+     *
+     * @example
+     * const template = this.findMesh('BulletTemplate')!
+     * const bullet = this.clone(template, 'bullet_1')
+     * bullet.position = this.node.position.clone()
+     */
+    clone(source: Mesh, name?: string): Mesh
+
+    /**
+     * Add a physics body to a mesh at runtime.
+     *
+     * @param mesh         The mesh to add physics to.
+     * @param mass         Mass in kg. Default: 1. Use 0 for static.
+     * @param restitution  Bounciness. Default: 0.75.
+     */
+    addPhysics(mesh: Mesh, mass?: number, restitution?: number): void
+
+    /**
+     * Destroy a runtime-created node immediately.
+     * Also disposes its physics body and material.
+     *
+     * @example
+     * if (this.time > this.spawnTime + 3) {
+     *     this.destroyNode(this.bullet)
+     * }
+     */
+    destroyNode(node: SceneNode): void
+
+    // -- Raycasting -----------------------------------------------------------
+
+    /**
+     * Cast a ray from `origin` in `direction` and return the first hit.
+     * Returns null if nothing was hit. Only meshes with `isPickable = true`
+     * (the default) are considered.
+     *
+     * @param origin       World-space starting point.
+     * @param direction    Direction vector (does not need to be normalised).
+     * @param maxDistance   Maximum distance to check. Default: 1000.
+     *
+     * @example
+     * // Shoot a ray forward from this node
+     * const hit = this.raycast(
+     *     this.node.position,
+     *     this.camera.getDirection(Vector3.Forward()),
+     *     100
+     * )
+     * if (hit) {
+     *     this.log('Hit', hit.mesh.name, 'at distance', hit.distance)
+     * }
+     */
+    raycast(
+        origin: Vector3,
+        direction: Vector3,
+        maxDistance?: number
+    ): RaycastHit | null
+
+    /**
+     * Cast a ray and return **all** hits sorted by distance (nearest first).
+     * Returns an empty array if nothing was hit.
+     *
+     * @example
+     * const hits = this.raycastAll(this.node.position, Vector3.Down(), 50)
+     * for (const hit of hits) {
+     *     this.log(hit.mesh.name, hit.distance)
+     * }
+     */
+    raycastAll(
+        origin: Vector3,
+        direction: Vector3,
+        maxDistance?: number
+    ): RaycastHit[]
+
+    /**
+     * Pick from a screen-space position (pixels). Useful for mouse picking.
+     *
+     * @param screenX  Horizontal pixel coordinate (e.g. `this.input.mouseX`).
+     * @param screenY  Vertical pixel coordinate (e.g. `this.input.mouseY`).
+     *
+     * @example
+     * if (this.input.isMouseButtonDown(0)) {
+     *     const hit = this.screenRaycast(this.input.mouseX, this.input.mouseY)
+     *     if (hit) this.log('Clicked on', hit.mesh.name)
+     * }
+     */
+    screenRaycast(screenX: number, screenY: number): RaycastHit | null
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +227,22 @@ declare class Input {
 
     /** True while a mouse button is held. 0 = left, 1 = middle, 2 = right. */
     isMouseButtonDown(button: number): boolean
+
+    /** Whether the pointer is currently locked to the viewport. */
+    readonly isMouseLocked: boolean
+
+    /**
+     * Lock the mouse cursor to the viewport.
+     * While locked, the cursor is hidden and `mouseDeltaX`/`mouseDeltaY`
+     * report raw movement — ideal for first-person camera controls.
+     */
+    lockMouse(): void
+
+    /**
+     * Release the pointer lock, restoring normal cursor behaviour.
+     * Also called automatically when play mode stops.
+     */
+    unlockMouse(): void
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +417,26 @@ declare class AbstractMesh extends TransformNode {
 }
 
 /** A mesh in the scene (the most common renderable type). */
-declare class Mesh extends AbstractMesh {}
+declare class Mesh extends AbstractMesh {
+    /** The physics body attached to this mesh, or null if none. */
+    physicsBody: PhysicsBody | null
+}
+
+/** A physics body attached to a mesh. */
+declare class PhysicsBody {
+    /** Set the linear velocity of this body. */
+    setLinearVelocity(velocity: Vector3): void
+    /** Get the current linear velocity. */
+    getLinearVelocity(): Vector3
+    /** Set the angular velocity of this body. */
+    setAngularVelocity(velocity: Vector3): void
+    /** Get the current angular velocity. */
+    getAngularVelocity(): Vector3
+    /** Apply a force at the body's center of mass (continuous, call every frame). */
+    applyForce(force: Vector3, location: Vector3): void
+    /** Apply an instant impulse at a world-space point. */
+    applyImpulse(impulse: Vector3, location: Vector3): void
+}
 
 // ---------------------------------------------------------------------------
 // Lights & Cameras
@@ -333,6 +488,11 @@ declare class Camera extends SceneNode {
  * export default class extends Script {
  *     speed = 10
  *
+ *     start() {
+ *         // Lock the mouse for FPS-style controls
+ *         this.input.lockMouse()
+ *     }
+ *
  *     update() {
  *         // Simple WASD + mouse-look camera
  *         const move = vec3(0, 0, 0)
@@ -351,7 +511,7 @@ declare class Camera extends SceneNode {
  *             right.scale(move.x * this.speed * this.deltaTime)
  *         )
  *
- *         // Mouse look
+ *         // Mouse look (works best with pointer lock)
  *         this.camera.rotation.y += this.input.mouseDeltaX * 0.002
  *         this.camera.rotation.x += this.input.mouseDeltaY * 0.002
  *     }
@@ -582,6 +742,55 @@ interface Math {
 }
 
 declare const Math: Math
+
+// ---------------------------------------------------------------------------
+// Raycasting
+// ---------------------------------------------------------------------------
+
+/** Result of a successful raycast. */
+declare interface RaycastHit {
+    /** The mesh that was hit. */
+    readonly mesh: Mesh
+    /** World-space hit point. */
+    readonly point: Vector3
+    /** World-space surface normal at the hit point. */
+    readonly normal: Vector3
+    /** Distance from the ray origin to the hit point. */
+    readonly distance: number
+}
+
+// ---------------------------------------------------------------------------
+// Runtime Instance Creation
+// ---------------------------------------------------------------------------
+
+/** Options for spawning a primitive mesh at runtime. */
+interface SpawnOptions {
+    /** Custom name for the mesh. Auto-generated if omitted. */
+    name?: string
+    /** Initial position. */
+    position?: Vector3
+    /** Initial rotation in radians. */
+    rotation?: Vector3
+    /** Initial scale. */
+    scale?: Vector3
+    /** Diffuse color of the material. */
+    color?: Color3
+    /** Dimensions of the primitive. */
+    size?: {
+        width?: number
+        height?: number
+        depth?: number
+        diameter?: number
+        thickness?: number
+    }
+    /** If provided, a physics body is created immediately. */
+    physics?: {
+        /** Mass in kg. Default: 1. Use 0 for static bodies. */
+        mass?: number
+        /** Bounciness. Default: 0.75. */
+        restitution?: number
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Utility
