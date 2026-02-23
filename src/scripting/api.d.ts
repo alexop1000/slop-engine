@@ -193,6 +193,43 @@ declare class Script {
      * }
      */
     screenRaycast(screenX: number, screenY: number): RaycastHit | null
+
+    // -- Collision Events -----------------------------------------------------
+
+    /**
+     * Register a callback that fires when this node's physics body starts
+     * colliding with another body. Call this in `start()`. Requires a
+     * physics body on this node.
+     *
+     * @param callback  Receives a {@link CollisionEvent} each time a new
+     *                  collision begins.
+     *
+     * @example
+     * start() {
+     *     this.onCollision((event) => {
+     *         this.log('Hit', event.other.name, 'impulse:', event.impulse)
+     *         if (event.impulse > 5) {
+     *             this.log('Hard impact!')
+     *         }
+     *     })
+     * }
+     */
+    onCollision(callback: (event: CollisionEvent) => void): void
+
+    /**
+     * Register a callback that fires when this node's physics body **stops**
+     * colliding with another body. Call this in `start()`.
+     *
+     * @param callback  Receives a {@link CollisionEvent} when a collision ends.
+     *
+     * @example
+     * start() {
+     *     this.onCollisionEnd((event) => {
+     *         this.log('No longer touching', event.other.name)
+     *     })
+     * }
+     */
+    onCollisionEnd(callback: (event: CollisionEvent) => void): void
 }
 
 // ---------------------------------------------------------------------------
@@ -757,6 +794,22 @@ declare interface RaycastHit {
     readonly normal: Vector3
     /** Distance from the ray origin to the hit point. */
     readonly distance: number
+}
+
+// ---------------------------------------------------------------------------
+// Collision Events
+// ---------------------------------------------------------------------------
+
+/** Information about a collision between two physics bodies. */
+declare interface CollisionEvent {
+    /** The other mesh involved in the collision. */
+    readonly other: Mesh
+    /** World-space contact point (approximate). */
+    readonly point: Vector3
+    /** World-space contact normal pointing away from the other body. */
+    readonly normal: Vector3
+    /** The impulse magnitude of the collision. */
+    readonly impulse: number
 }
 
 // ---------------------------------------------------------------------------

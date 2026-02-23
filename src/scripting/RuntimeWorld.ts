@@ -8,8 +8,11 @@ import {
     Vector3,
     PhysicsAggregate,
     PhysicsShapeType,
+    Observer,
+    HavokPlugin,
 } from 'babylonjs'
 import { pushLog } from './consoleStore'
+import type { CollisionCallback, CollisionEvent } from './Script'
 
 /** Options for creating a primitive mesh at runtime. */
 export interface SpawnPrimitiveOptions {
@@ -43,6 +46,15 @@ export class RuntimeWorld {
     private _runtimeNodes: Set<Node> = new Set()
     private _physicsAggregates: Map<Mesh, PhysicsAggregate> = new Map()
     private _counter = 0
+
+    /**
+     * Maps a mesh uniqueId to the collision callbacks registered for that mesh.
+     * Populated by ScriptRuntime when scripts call `onCollision` / `onCollisionEnd`.
+     */
+    private _collisionStartMap: Map<number, CollisionCallback[]> = new Map()
+    private _collisionEndMap: Map<number, CollisionCallback[]> = new Map()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    private _collisionObserver: Observer<any> | null = null
 
     constructor(scene: Scene) {
         this._scene = scene
@@ -226,13 +238,169 @@ export class RuntimeWorld {
             if (node.material) {
                 node.material.dispose()
             }
+            // Clean up collision callbacks for this mesh
+            this._collisionStartMap.delete(node.uniqueId)
+            this._collisionEndMap.delete(node.uniqueId)
         }
         node.dispose()
         this._runtimeNodes.delete(node)
     }
 
+    // -- Collision Observables ------------------------------------------------
+
+    /**
+     * Register collision-start callbacks for a mesh (by uniqueId).
+     * Called by ScriptRuntime when it encounters scripts with registered callbacks.
+     */
+    registerCollisionStart(
+        meshId: number,
+        callbacks: CollisionCallback[]
+    ): void {
+        const existing = this._collisionStartMap.get(meshId)
+        if (existing) {
+            existing.push(...callbacks)
+        } else {
+            this._collisionStartMap.set(meshId, [...callbacks])
+        }
+    }
+
+    /**
+     * Register collision-end callbacks for a mesh (by uniqueId).
+     */
+    registerCollisionEnd(meshId: number, callbacks: CollisionCallback[]): void {
+        const existing = this._collisionEndMap.get(meshId)
+        if (existing) {
+            existing.push(...callbacks)
+        } else {
+            this._collisionEndMap.set(meshId, [...callbacks])
+        }
+    }
+
+    /**
+     * Start listening for physics collision events from the Havok plugin.
+     * Must be called after all scripts have registered their callbacks.
+     */
+    startCollisionObserver(): void {
+        const engine = this._scene.getPhysicsEngine()
+        if (!engine) return
+
+        const plugin = engine.getPhysicsPlugin() as HavokPlugin | null
+        if (!plugin || !plugin.onCollisionObservable) return
+
+        this._collisionObserver = plugin.onCollisionObservable.add(
+            (event: any) => {
+                try {
+                    const collider = event.collider?.transformNode as
+                        | Mesh
+                        | undefined
+                    const collidedAgainst = event.collidedAgainst
+                        ?.transformNode as Mesh | undefined
+
+                    if (!collider || !collidedAgainst) return
+
+                    const type = event.type
+                    // BabylonJS collision types:
+                    // 'COLLISION_STARTED' | 'COLLISION_CONTINUED' | 'COLLISION_FINISHED'
+                    const isStart = type === 'COLLISION_STARTED'
+                    const isEnd = type === 'COLLISION_FINISHED'
+
+                    if (!isStart && !isEnd) return
+
+                    // Extract contact point and normal from the event
+                    const point = event.point ?? Vector3.Zero()
+                    const normal = event.normal ?? Vector3.Up()
+                    const impulse = event.impulse ?? 0
+
+                    if (isStart) {
+                        this._dispatchCollision(
+                            this._collisionStartMap,
+                            collider,
+                            collidedAgainst,
+                            point,
+                            normal,
+                            impulse
+                        )
+                    } else {
+                        this._dispatchCollision(
+                            this._collisionEndMap,
+                            collider,
+                            collidedAgainst,
+                            point,
+                            normal,
+                            impulse
+                        )
+                    }
+                } catch (err) {
+                    pushLog('error', 'Error in collision handler:', String(err))
+                }
+            }
+        )
+    }
+
+    /** Dispatch collision callbacks for both sides of a collision pair. */
+    private _dispatchCollision(
+        map: Map<number, CollisionCallback[]>,
+        meshA: Mesh,
+        meshB: Mesh,
+        point: Vector3,
+        normal: Vector3,
+        impulse: number
+    ): void {
+        // Notify meshA about meshB
+        const callbacksA = map.get(meshA.uniqueId)
+        if (callbacksA) {
+            const eventA: CollisionEvent = {
+                other: meshB,
+                point: point.clone(),
+                normal: normal.clone(),
+                impulse,
+            }
+            for (const cb of callbacksA) {
+                try {
+                    cb(eventA)
+                } catch (err) {
+                    pushLog(
+                        'error',
+                        'Error in onCollision callback:',
+                        String(err)
+                    )
+                }
+            }
+        }
+
+        // Notify meshB about meshA
+        const callbacksB = map.get(meshB.uniqueId)
+        if (callbacksB) {
+            const eventB: CollisionEvent = {
+                other: meshA,
+                point: point.clone(),
+                normal: normal.scale(-1), // Flip normal for the other perspective
+                impulse,
+            }
+            for (const cb of callbacksB) {
+                try {
+                    cb(eventB)
+                } catch (err) {
+                    pushLog(
+                        'error',
+                        'Error in onCollision callback:',
+                        String(err)
+                    )
+                }
+            }
+        }
+    }
+
     /** Dispose ALL runtime-created objects. Called by ScriptRuntime.stop(). */
     disposeAll(): void {
+        // Remove collision observer
+        if (this._collisionObserver) {
+            this._collisionObserver.remove()
+            this._collisionObserver = null
+        }
+        this._collisionStartMap.clear()
+        this._collisionEndMap.clear()
+
         for (const [, agg] of this._physicsAggregates) {
             agg.dispose()
         }

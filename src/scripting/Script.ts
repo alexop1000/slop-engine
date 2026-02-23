@@ -12,6 +12,21 @@ import { InputManager } from './InputManager'
 import type { RuntimeWorld } from './RuntimeWorld'
 import { pushLog } from './consoleStore'
 
+/** Information about a collision between two physics bodies. */
+export interface CollisionEvent {
+    /** The other mesh involved in the collision. */
+    other: Mesh
+    /** World-space contact point (approximate). */
+    point: Vector3
+    /** World-space contact normal pointing away from `other`. */
+    normal: Vector3
+    /** The impulse magnitude of the collision. */
+    impulse: number
+}
+
+/** @internal */
+export type CollisionCallback = (event: CollisionEvent) => void
+
 /**
  * Runtime base class for user scripts.
  *
@@ -50,6 +65,10 @@ export class Script {
 
     /** @internal Set by ScriptRuntime before start(). */
     _world!: RuntimeWorld
+
+    /** @internal Collision callbacks registered by this script. */
+    _collisionStartCallbacks: CollisionCallback[] = []
+    _collisionEndCallbacks: CollisionCallback[] = []
 
     // -- Helpers --------------------------------------------------------------
 
@@ -114,6 +133,42 @@ export class Script {
     /** Destroy a runtime-created node immediately. */
     destroyNode(node: Node): void {
         this._world.destroyNode(node)
+    }
+
+    // -- Collision Events ------------------------------------------------------
+
+    /**
+     * Register a callback that fires when this node's physics body starts
+     * colliding with another body. Requires a physics body on this node.
+     *
+     * @param callback  Called with a CollisionEvent each time a new collision begins.
+     *
+     * @example
+     * start() {
+     *     this.onCollision((event) => {
+     *         this.log('Hit', event.other.name, 'impulse:', event.impulse)
+     *     })
+     * }
+     */
+    onCollision(callback: (event: CollisionEvent) => void): void {
+        this._collisionStartCallbacks.push(callback as CollisionCallback)
+    }
+
+    /**
+     * Register a callback that fires when this node's physics body stops
+     * colliding with another body.
+     *
+     * @param callback  Called with a CollisionEvent when a collision ends.
+     *
+     * @example
+     * start() {
+     *     this.onCollisionEnd((event) => {
+     *         this.log('Stopped touching', event.other.name)
+     *     })
+     * }
+     */
+    onCollisionEnd(callback: (event: CollisionEvent) => void): void {
+        this._collisionEndCallbacks.push(callback as CollisionCallback)
     }
 
     // -- Raycasting ------------------------------------------------------------

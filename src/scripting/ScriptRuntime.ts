@@ -41,8 +41,7 @@ Object.assign(SlopMath, {
     clamp: (value: number, min: number, max: number) =>
         Math.min(Math.max(value, min), max),
     lerp: (a: number, b: number, t: number) => a + (b - a) * t,
-    inverseLerp: (a: number, b: number, value: number) =>
-        (value - a) / (b - a),
+    inverseLerp: (a: number, b: number, value: number) => (value - a) / (b - a),
     smoothstep: (edge0: number, edge1: number, x: number) => {
         const t = Math.min(Math.max((x - edge0) / (edge1 - edge0), 0), 1)
         return t * t * (3 - 2 * t)
@@ -203,6 +202,30 @@ export class ScriptRuntime {
                 pushLog('error', `Error in start() of "${path}":`, String(err))
             }
         }
+
+        // Register collision callbacks from scripts that called
+        // onCollision() / onCollisionEnd() during start()
+        for (const { instance } of this._scripts) {
+            const meshNode = instance.node
+            if (!meshNode || !('uniqueId' in meshNode)) continue
+            const id = (meshNode as any).uniqueId as number
+
+            if (instance._collisionStartCallbacks.length > 0) {
+                this._world!.registerCollisionStart(
+                    id,
+                    instance._collisionStartCallbacks
+                )
+            }
+            if (instance._collisionEndCallbacks.length > 0) {
+                this._world!.registerCollisionEnd(
+                    id,
+                    instance._collisionEndCallbacks
+                )
+            }
+        }
+
+        // Start listening for Havok collision events
+        this._world!.startCollisionObserver()
 
         // Register per-frame update
         this._observer = scene.onBeforeRenderObservable.add(() => {
