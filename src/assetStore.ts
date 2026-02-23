@@ -49,6 +49,16 @@ export async function deleteBlob(path: string): Promise<void> {
     })
 }
 
+export async function clearAllBlobs(): Promise<void> {
+    const db = await openDB()
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite')
+        const req = tx.objectStore(STORE_NAME).clear()
+        req.onsuccess = () => resolve()
+        req.onerror = () => reject(req.error)
+    })
+}
+
 export interface AssetNode {
     id: string
     name: string
@@ -120,7 +130,11 @@ export function createAssetStore() {
         return paths
     }
 
-    function addNode(parentPath: string, name: string, type: 'file' | 'folder'): AssetNode {
+    function addNode(
+        parentPath: string,
+        name: string,
+        type: 'file' | 'folder'
+    ): AssetNode {
         const path = joinPath(parentPath, name)
         const parent = findNode(tree(), parentPath)
         if (!parent || parent.type !== 'folder') {
@@ -152,7 +166,9 @@ export function createAssetStore() {
         const parentPath = getParentPath(path)
         const parent = findNode(tree(), parentPath)
         if (!parent) return
-        const existing = (parent.children ?? []).find((c) => c.name === newName && c.path !== path)
+        const existing = (parent.children ?? []).find(
+            (c) => c.name === newName && c.path !== path
+        )
         if (existing) {
             throw new Error(`"${newName}" already exists`)
         }
@@ -194,12 +210,18 @@ export function createAssetStore() {
             const next = JSON.parse(JSON.stringify(prev))
             const parent = findParent(next, path)
             if (!parent) return prev
-            parent.children = (parent.children ?? []).filter((c) => c.path !== path)
+            parent.children = (parent.children ?? []).filter(
+                (c) => c.path !== path
+            )
             return next
         })
     }
 
-    function moveNode(sourcePath: string, targetPath: string, position: 'before' | 'inside' | 'after'): void {
+    function moveNode(
+        sourcePath: string,
+        targetPath: string,
+        position: 'before' | 'inside' | 'after'
+    ): void {
         const source = findNode(tree(), sourcePath)
         const target = findNode(tree(), targetPath)
         if (!source || !target) return
@@ -214,7 +236,9 @@ export function createAssetStore() {
                 if (!src || !tgt || tgt.type !== 'folder') return prev
                 const oldParent = findParent(next, sourcePath)
                 if (!oldParent) return prev
-                oldParent.children = (oldParent.children ?? []).filter((c) => c.path !== sourcePath)
+                oldParent.children = (oldParent.children ?? []).filter(
+                    (c) => c.path !== sourcePath
+                )
                 const newPath = joinPath(targetPath, src.name)
                 src.path = newPath
                 if (src.type === 'folder' && src.children?.length) {
@@ -249,6 +273,7 @@ export function createAssetStore() {
 
     return {
         tree,
+        setTree,
         addNode,
         renameNode,
         deleteNode,

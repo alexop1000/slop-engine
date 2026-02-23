@@ -13,6 +13,8 @@ import {
     SceneLoader,
     UniversalCamera,
 } from 'babylonjs'
+import JSZip from 'jszip'
+import { getAssetStore, getBlob, setBlob, type AssetNode } from '../assetStore'
 
 export interface TransformSnapshot {
     position: { x: number; y: number; z: number }
@@ -76,6 +78,19 @@ export function serializeScene(scene: Scene): string {
     return JSON.stringify(stripped)
 }
 
+export function downloadScene(scene: Scene, filename = 'scene.babylon'): void {
+    const json = serializeScene(scene)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+}
+
 export async function loadSceneFromJson(
     engine: Engine,
     json: string,
@@ -111,6 +126,97 @@ export async function loadSceneFromJson(
     } finally {
         URL.revokeObjectURL(url)
     }
+}
+
+// ── Bundled export/import (scene + assets) ───────────────────────────
+
+/**
+ * Export the scene and all assets as a single `.slop` ZIP file.
+ *
+ * ZIP structure:
+ *   scene.babylon       – serialised BabylonJS scene JSON
+ *   asset-tree.json     – asset tree metadata
+ *   assets/<path>       – each asset file blob
+ */
+export async function downloadSceneBundle(
+    scene: Scene,
+    filename = 'scene.slop'
+): Promise<void> {
+    const zip = new JSZip()
+
+    // 1. Scene JSON
+    const sceneJson = serializeScene(scene)
+    zip.file('scene.babylon', sceneJson)
+
+    // 2. Asset tree + blobs
+    const store = getAssetStore()
+    const tree = store.tree()
+    zip.file('asset-tree.json', JSON.stringify(tree))
+
+    const filePaths = store.collectFilePaths(tree)
+    for (const path of filePaths) {
+        const blob = await getBlob(path)
+        if (blob) {
+            zip.file(`assets/${path}`, blob)
+        }
+    }
+
+    // 3. Generate & download
+    const content = await zip.generateAsync({ type: 'blob' })
+    const url = URL.createObjectURL(content)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+}
+
+/**
+ * Import a `.slop` bundle – restores the asset tree and blobs into
+ * IndexedDB and returns the scene JSON so the caller can reload.
+ */
+export async function importSceneBundle(
+    file: File
+): Promise<{ sceneJson: string; assetTree: AssetNode }> {
+    const zip = await JSZip.loadAsync(file)
+
+    // 1. Read scene JSON
+    const sceneFile = zip.file('scene.babylon')
+    if (!sceneFile) throw new Error('Bundle is missing scene.babylon')
+    const sceneJson = await sceneFile.async('string')
+    // Validate JSON
+    JSON.parse(sceneJson)
+
+    // 2. Read asset tree
+    const treeFile = zip.file('asset-tree.json')
+    let assetTree: AssetNode | null = null
+    if (treeFile) {
+        assetTree = JSON.parse(await treeFile.async('string')) as AssetNode
+    }
+
+    // 3. Restore asset blobs
+    const assetPrefix = 'assets/'
+    const assetEntries = Object.keys(zip.files).filter(
+        (name) => name.startsWith(assetPrefix) && !zip.files[name].dir
+    )
+    for (const entry of assetEntries) {
+        const assetPath = entry.slice(assetPrefix.length)
+        const blob = await zip.files[entry].async('blob')
+        await setBlob(assetPath, blob)
+    }
+
+    // 4. Provide a default empty tree if none was in the bundle
+    assetTree ??= {
+        id: '__root__',
+        name: 'Assets',
+        type: 'folder',
+        path: '',
+        children: [],
+    }
+
+    return { sceneJson, assetTree }
 }
 
 export function captureTransformSnapshot(mesh: Mesh): TransformSnapshot {

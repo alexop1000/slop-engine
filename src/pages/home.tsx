@@ -3,6 +3,7 @@ import {
     createEffect,
     createMemo,
     onMount,
+    onCleanup,
     untrack,
 } from 'solid-js'
 import {
@@ -29,6 +30,7 @@ import {
     cubeTransparent,
     arrowDownTray,
     arrowUpTray,
+    arrowRightCircle,
 } from 'solid-heroicons/outline'
 import { Icon } from 'solid-heroicons'
 import Handle from '../components/Handle'
@@ -41,11 +43,23 @@ import {
     ScriptPanel,
     PropertiesPanel,
 } from '../components/panels'
-import { Button, IconButton, Tooltip, Tabs, TabPanel } from '../components/ui'
+import {
+    Button,
+    IconButton,
+    Tooltip,
+    Tabs,
+    TabPanel,
+    Modal,
+    ModalHeader,
+    ModalBody,
+    ModalFooter,
+} from '../components/ui'
 import {
     createDefaultScene,
     loadSceneFromJson,
     serializeScene,
+    downloadSceneBundle,
+    importSceneBundle,
     setupEditorCamera,
     captureTransformSnapshot,
     restoreTransform,
@@ -53,7 +67,7 @@ import {
 } from '../scene/EditorScene'
 import { onScriptOpen } from '../scriptEditorStore'
 import { ScriptRuntime } from '../scripting/ScriptRuntime'
-import { getAssetStore, type AssetNode } from '../assetStore'
+import { getAssetStore, clearAllBlobs, type AssetNode } from '../assetStore'
 import { clearLogs } from '../scripting/consoleStore'
 
 const SCRIPT_EXT = ['.ts', '.tsx', '.js', '.jsx']
@@ -106,6 +120,28 @@ export default function Home() {
         'position' | 'rotation' | 'scale' | 'boundingBox'
     >('position')
 
+    const [isDirty, setIsDirty] = createSignal(false)
+    const [lastSaved, setLastSaved] = createSignal<Date | null>(null)
+    let _autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+    let _bundleInputRef: HTMLInputElement | undefined
+    const [showResetConfirm, setShowResetConfirm] = createSignal(false)
+
+    function performSave(s: Scene) {
+        setSceneJson(serializeScene(s))
+        setLastSaved(new Date())
+        setIsDirty(false)
+    }
+
+    function scheduleAutoSave() {
+        setIsDirty(true)
+        if (_autoSaveTimer) clearTimeout(_autoSaveTimer)
+        _autoSaveTimer = setTimeout(() => {
+            const s = scene()
+            if (!s || isPlaying()) return
+            performSave(s)
+        }, 2000)
+    }
+
     // Script tab switching
     const [viewportTab, setViewportTab] = createSignal<string | undefined>(
         undefined
@@ -141,6 +177,7 @@ export default function Home() {
                 gizmo.onDragEndObservable?.add(() => {
                     _isDraggingGizmo = false
                     setNodeTick((t) => t + 1)
+                    scheduleAutoSave()
                 })
             }
         }
@@ -269,6 +306,24 @@ export default function Home() {
         scene.onBeforeRenderObservable.add(() => {
             if (_isDraggingGizmo) setNodeTick((t) => t + 1)
         })
+
+        scene.onNewMeshAddedObservable.add(() => scheduleAutoSave())
+        scene.onMeshRemovedObservable.add(() => scheduleAutoSave())
+        scene.onNewLightAddedObservable.add(() => scheduleAutoSave())
+        scene.onLightRemovedObservable.add(() => scheduleAutoSave())
+        scene.onNewTransformNodeAddedObservable.add(() => scheduleAutoSave())
+        scene.onTransformNodeRemovedObservable.add(() => scheduleAutoSave())
+
+        // Periodic save catches property edits (material, physics settings, etc.)
+        const periodicInterval = setInterval(() => {
+            if (isPlaying()) return
+            performSave(scene)
+        }, 30_000)
+        onCleanup(() => clearInterval(periodicInterval))
+
+        // Mark as saved after initial load
+        setLastSaved(new Date())
+
         setScene(scene)
         setEngine(eng)
         eng.runRenderLoop(() => scene.render())
@@ -289,7 +344,7 @@ export default function Home() {
         <section class="bg-gray-900 text-gray-100 size-full p-2 flex flex-col">
             {/* Topbar */}
             <div class="flex items-center mb-2 bg-gray-800 p-2 rounded-md gap-5">
-                <div class="flex items-center space-x-1">
+                <div class="flex items-center space-x-1 gap-1">
                     <Button
                         variant={isPlaying() ? 'primary' : 'secondary'}
                         size="md"
@@ -400,34 +455,83 @@ export default function Home() {
                             {isPlaying() ? 'Stop' : 'Play'}
                         </span>
                     </Button>
-                    <Tooltip content="Save scene" position="bottom">
+                    <span
+                        class={`text-xs px-1 ${
+                            isDirty() ? 'text-yellow-400' : 'text-green-400'
+                        }`}
+                        style={{
+                            visibility:
+                                lastSaved() || isDirty() ? 'visible' : 'hidden',
+                        }}
+                    >
+                        {isDirty() ? '● Unsaved' : '● Saved'}
+                    </span>
+                    <div class="w-px h-4 bg-gray-600 mx-1" />
+                    <Tooltip
+                        content="Export scene + assets (.slop)"
+                        position="bottom"
+                    >
                         <IconButton
-                            label="Save"
+                            label="Export"
                             variant="ghost"
                             size="sm"
-                            onClick={() => {
+                            onClick={async () => {
                                 const s = scene()
-                                if (s && !isPlaying())
-                                    setSceneJson(serializeScene(s))
+                                if (s && !isPlaying()) {
+                                    await downloadSceneBundle(s)
+                                }
                             }}
                         >
                             <Icon path={arrowDownTray} class="size-5" />
                         </IconButton>
                     </Tooltip>
-                    <Tooltip content="Load default scene" position="bottom">
+                    <Tooltip
+                        content="Import scene + assets (.slop)"
+                        position="bottom"
+                    >
                         <IconButton
-                            label="Load default"
+                            label="Import"
                             variant="ghost"
                             size="sm"
-                            onClick={() => {
-                                if (isPlaying()) return
-                                setSceneJson(null)
-                                window.location.reload()
-                            }}
+                            onClick={() => _bundleInputRef?.click()}
                         >
                             <Icon path={arrowUpTray} class="size-5" />
                         </IconButton>
                     </Tooltip>
+                    <input
+                        ref={_bundleInputRef}
+                        type="file"
+                        accept=".slop"
+                        class="hidden"
+                        onChange={async (e) => {
+                            const file = e.currentTarget.files?.[0]
+                            if (!file) return
+                            try {
+                                const { sceneJson: json, assetTree } =
+                                    await importSceneBundle(file)
+                                assetStore.setTree(assetTree)
+                                setSceneJson(json)
+                                globalThis.location.reload()
+                            } catch (err) {
+                                console.error('Failed to import bundle:', err)
+                            }
+                        }}
+                    />
+                    <div class="w-px h-4 bg-gray-600 mx-1" />
+                    <Tooltip content="Reset to default scene" position="bottom">
+                        <IconButton
+                            label="Reset"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                                if (isPlaying()) return
+                                setShowResetConfirm(true)
+                            }}
+                        >
+                            <Icon path={arrowRightCircle} class="size-5" />
+                        </IconButton>
+                    </Tooltip>
+                    <div class="w-px h-4 bg-gray-600 mx-1" />
                 </div>
 
                 <div class="flex items-center space-x-1">
@@ -646,6 +750,49 @@ export default function Home() {
                     </Resizable>
                 </Resizable.Panel>
             </Resizable>
+
+            {/* Reset confirmation modal */}
+            <Modal
+                open={showResetConfirm()}
+                onClose={() => setShowResetConfirm(false)}
+                size="sm"
+            >
+                <ModalHeader>Reset Scene</ModalHeader>
+                <ModalBody>
+                    <p class="text-sm text-gray-300">
+                        This will delete the current scene{' '}
+                        <strong>and all assets</strong>. This action cannot be
+                        undone.
+                    </p>
+                </ModalBody>
+                <ModalFooter>
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setShowResetConfirm(false)}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={async () => {
+                            assetStore.setTree({
+                                id: '__root__',
+                                name: 'Assets',
+                                type: 'folder',
+                                path: '',
+                                children: [],
+                            })
+                            await clearAllBlobs()
+                            setSceneJson(null)
+                            globalThis.location.reload()
+                        }}
+                    >
+                        Reset Everything
+                    </Button>
+                </ModalFooter>
+            </Modal>
         </section>
     )
 }
