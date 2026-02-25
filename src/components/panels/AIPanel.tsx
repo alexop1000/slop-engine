@@ -454,6 +454,7 @@ export default function AIPanel(
         selectedNode: Accessor<Node | undefined>
         setSelectedNode: (node: Node | undefined) => void
         setNodeTick: Setter<number>
+        scheduleAutoSave: () => void
     }>
 ) {
     const [input, setInput] = createSignal('')
@@ -1070,6 +1071,7 @@ export default function AIPanel(
                             toolCallId: toolPart.toolCallId,
                             output: result,
                         })
+                        props.scheduleAutoSave()
                     })
                     .catch((err) => {
                         chat.addToolOutput({

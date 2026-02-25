@@ -3,6 +3,7 @@ import {
     Scene,
     MeshBuilder,
     Mesh,
+    TransformNode,
     Color3,
     StandardMaterial,
     Vector3,
@@ -20,6 +21,55 @@ export interface TransformSnapshot {
     position: { x: number; y: number; z: number }
     rotation: { x: number; y: number; z: number }
     scaling: { x: number; y: number; z: number }
+}
+
+interface ColorSnapshot {
+    r: number
+    g: number
+    b: number
+}
+
+interface MaterialSnapshot {
+    name: string
+    diffuseColor: ColorSnapshot
+    specularColor: ColorSnapshot
+    emissiveColor: ColorSnapshot
+    ambientColor: ColorSnapshot
+    alpha: number
+    specularPower: number
+    roughness: number
+    wireframe: boolean
+    backFaceCulling: boolean
+}
+
+interface MeshSnapshot {
+    transform: TransformSnapshot
+    isVisible: boolean
+    isEnabled: boolean
+    materialName: string | null
+    metadata: unknown
+}
+
+interface LightSnapshot {
+    intensity: number
+    diffuse: ColorSnapshot
+    specular: ColorSnapshot
+    range: number
+    position: { x: number; y: number; z: number }
+    isEnabled: boolean
+}
+
+interface TransformNodeSnapshot {
+    transform: TransformSnapshot
+    isEnabled: boolean
+    metadata: unknown
+}
+
+export interface SceneSnapshot {
+    meshes: Map<string, MeshSnapshot>
+    lights: Map<string, LightSnapshot>
+    transformNodes: Map<string, TransformNodeSnapshot>
+    materials: Map<string, MaterialSnapshot>
 }
 
 export interface EditorSceneResult {
@@ -235,6 +285,241 @@ export function restoreTransform(mesh: Mesh, snap: TransformSnapshot): void {
     mesh.rotationQuaternion = null
     mesh.rotation.set(snap.rotation.x, snap.rotation.y, snap.rotation.z)
     mesh.scaling.set(snap.scaling.x, snap.scaling.y, snap.scaling.z)
+}
+
+function snapColor(c: Color3): ColorSnapshot {
+    return { r: c.r, g: c.g, b: c.b }
+}
+
+function cloneMetadata(meta: unknown): unknown {
+    if (meta == null) return meta
+    try {
+        return structuredClone(meta)
+    } catch {
+        return meta
+    }
+}
+
+function snapTransform(node: TransformNode): TransformSnapshot {
+    const p = node.position
+    const r = node.rotation
+    const s = node.scaling
+    return {
+        position: { x: p.x, y: p.y, z: p.z },
+        rotation: { x: r.x, y: r.y, z: r.z },
+        scaling: { x: s.x, y: s.y, z: s.z },
+    }
+}
+
+/**
+ * Capture a comprehensive snapshot of the entire scene so it can be
+ * fully restored after play mode finishes.
+ */
+export function captureSceneSnapshot(scene: Scene): SceneSnapshot {
+    const meshes = new Map<string, MeshSnapshot>()
+    const lights = new Map<string, LightSnapshot>()
+    const transformNodes = new Map<string, TransformNodeSnapshot>()
+    const materials = new Map<string, MaterialSnapshot>()
+
+    // Snapshot all materials
+    for (const mat of scene.materials) {
+        if (mat instanceof StandardMaterial) {
+            materials.set(mat.name, {
+                name: mat.name,
+                diffuseColor: snapColor(mat.diffuseColor),
+                specularColor: snapColor(mat.specularColor),
+                emissiveColor: snapColor(mat.emissiveColor),
+                ambientColor: snapColor(mat.ambientColor),
+                alpha: mat.alpha,
+                specularPower: mat.specularPower,
+                roughness: mat.roughness,
+                wireframe: mat.wireframe,
+                backFaceCulling: mat.backFaceCulling,
+            })
+        }
+    }
+
+    // Snapshot all meshes
+    for (const mesh of scene.meshes) {
+        meshes.set(mesh.uniqueId.toString(), {
+            transform: snapTransform(mesh as Mesh),
+            isVisible: mesh.isVisible,
+            isEnabled: mesh.isEnabled(),
+            materialName: mesh.material?.name ?? null,
+            metadata: cloneMetadata(mesh.metadata),
+        })
+    }
+
+    // Snapshot all lights
+    for (const light of scene.lights) {
+        lights.set(light.uniqueId.toString(), {
+            intensity: light.intensity,
+            diffuse: snapColor(light.diffuse),
+            specular: snapColor(light.specular),
+            range: light.range,
+            position:
+                light instanceof TransformNode
+                    ? {
+                          x: light.position.x,
+                          y: light.position.y,
+                          z: light.position.z,
+                      }
+                    : { x: 0, y: 0, z: 0 },
+            isEnabled: !light.isDisposed(),
+        })
+    }
+
+    // Snapshot all transform nodes
+    for (const tn of scene.transformNodes) {
+        transformNodes.set(tn.uniqueId.toString(), {
+            transform: snapTransform(tn),
+            isEnabled: tn.isEnabled(),
+            metadata: cloneMetadata(tn.metadata),
+        })
+    }
+
+    return { meshes, lights, transformNodes, materials }
+}
+
+/**
+ * Restore the scene to the state captured by `captureSceneSnapshot`.
+ */
+export function restoreSceneSnapshot(
+    scene: Scene,
+    snapshot: SceneSnapshot
+): void {
+    restoreMaterials(scene, snapshot)
+    restoreMeshes(scene, snapshot)
+    restoreLights(scene, snapshot)
+    restoreTransformNodes(scene, snapshot)
+}
+
+function restoreMaterials(scene: Scene, snapshot: SceneSnapshot): void {
+    for (const mat of scene.materials) {
+        if (!(mat instanceof StandardMaterial)) continue
+        const snap = snapshot.materials.get(mat.name)
+        if (!snap) continue
+
+        mat.diffuseColor = new Color3(
+            snap.diffuseColor.r,
+            snap.diffuseColor.g,
+            snap.diffuseColor.b
+        )
+        mat.specularColor = new Color3(
+            snap.specularColor.r,
+            snap.specularColor.g,
+            snap.specularColor.b
+        )
+        mat.emissiveColor = new Color3(
+            snap.emissiveColor.r,
+            snap.emissiveColor.g,
+            snap.emissiveColor.b
+        )
+        mat.ambientColor = new Color3(
+            snap.ambientColor.r,
+            snap.ambientColor.g,
+            snap.ambientColor.b
+        )
+        mat.alpha = snap.alpha
+        mat.specularPower = snap.specularPower
+        mat.roughness = snap.roughness
+        mat.wireframe = snap.wireframe
+        mat.backFaceCulling = snap.backFaceCulling
+    }
+}
+
+function restoreMeshes(scene: Scene, snapshot: SceneSnapshot): void {
+    for (const mesh of scene.meshes) {
+        const snap = snapshot.meshes.get(mesh.uniqueId.toString())
+        if (!snap) continue
+
+        // Transform
+        mesh.position.set(
+            snap.transform.position.x,
+            snap.transform.position.y,
+            snap.transform.position.z
+        )
+        mesh.rotationQuaternion = null
+        mesh.rotation.set(
+            snap.transform.rotation.x,
+            snap.transform.rotation.y,
+            snap.transform.rotation.z
+        )
+        mesh.scaling.set(
+            snap.transform.scaling.x,
+            snap.transform.scaling.y,
+            snap.transform.scaling.z
+        )
+
+        // Visibility & enabled
+        mesh.isVisible = snap.isVisible
+        mesh.setEnabled(snap.isEnabled)
+
+        // Material – restore original assignment if it was swapped
+        if (snap.materialName === null) {
+            mesh.material = null
+        } else if (mesh.material?.name !== snap.materialName) {
+            const originalMat = scene.getMaterialByName(snap.materialName)
+            if (originalMat) mesh.material = originalMat
+        }
+
+        // Metadata
+        mesh.metadata = cloneMetadata(snap.metadata)
+    }
+}
+
+function restoreLights(scene: Scene, snapshot: SceneSnapshot): void {
+    for (const light of scene.lights) {
+        const snap = snapshot.lights.get(light.uniqueId.toString())
+        if (!snap) continue
+
+        light.intensity = snap.intensity
+        light.diffuse = new Color3(
+            snap.diffuse.r,
+            snap.diffuse.g,
+            snap.diffuse.b
+        )
+        light.specular = new Color3(
+            snap.specular.r,
+            snap.specular.g,
+            snap.specular.b
+        )
+        light.range = snap.range
+
+        if (light instanceof TransformNode) {
+            light.position.set(
+                snap.position.x,
+                snap.position.y,
+                snap.position.z
+            )
+        }
+    }
+}
+
+function restoreTransformNodes(scene: Scene, snapshot: SceneSnapshot): void {
+    for (const tn of scene.transformNodes) {
+        const snap = snapshot.transformNodes.get(tn.uniqueId.toString())
+        if (!snap) continue
+
+        tn.position.set(
+            snap.transform.position.x,
+            snap.transform.position.y,
+            snap.transform.position.z
+        )
+        tn.rotationQuaternion = null
+        tn.rotation.set(
+            snap.transform.rotation.x,
+            snap.transform.rotation.y,
+            snap.transform.rotation.z
+        )
+        tn.scaling.set(
+            snap.transform.scaling.x,
+            snap.transform.scaling.y,
+            snap.transform.scaling.z
+        )
+        tn.setEnabled(snap.isEnabled)
+        tn.metadata = cloneMetadata(snap.metadata)
+    }
 }
 
 export function setupEditorCamera(

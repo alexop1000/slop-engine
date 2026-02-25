@@ -61,10 +61,11 @@ import {
     downloadSceneBundle,
     importSceneBundle,
     setupEditorCamera,
-    captureTransformSnapshot,
-    restoreTransform,
+    captureSceneSnapshot,
+    restoreSceneSnapshot,
     setupRuntimeCamera,
 } from '../scene/EditorScene'
+import type { SceneSnapshot } from '../scene/EditorScene'
 import { onScriptOpen } from '../scriptEditorStore'
 import { ScriptRuntime } from '../scripting/ScriptRuntime'
 import { getAssetStore, clearAllBlobs, type AssetNode } from '../assetStore'
@@ -150,10 +151,7 @@ export default function Home() {
 
     let _isDraggingGizmo = false
     const _physicsAggregates = new Map<Mesh, PhysicsAggregate>()
-    const _transformSnapshots = new Map<
-        Mesh,
-        ReturnType<typeof captureTransformSnapshot>
-    >()
+    let _sceneSnapshot: SceneSnapshot | null = null
     let _scriptRuntime: ScriptRuntime | null = null
 
     // Derive available script file paths from the shared asset store
@@ -369,18 +367,15 @@ export default function Home() {
 
                                 // Wait one frame so the engine flushes any
                                 // in-flight physics/render updates, then
-                                // restore the saved transforms
+                                // restore the saved scene state
                                 await new Promise<void>((resolve) =>
                                     requestAnimationFrame(() => resolve())
                                 )
 
-                                for (const [
-                                    mesh,
-                                    snap,
-                                ] of _transformSnapshots) {
-                                    restoreTransform(mesh, snap)
+                                if (_sceneSnapshot) {
+                                    restoreSceneSnapshot(s, _sceneSnapshot)
+                                    _sceneSnapshot = null
                                 }
-                                _transformSnapshots.clear()
 
                                 gizmoManager()!.attachToMesh(
                                     selectedNode() instanceof Mesh
@@ -404,12 +399,11 @@ export default function Home() {
                             } else {
                                 clearLogs()
 
+                                // Capture full scene state before play
+                                _sceneSnapshot = captureSceneSnapshot(s)
+
                                 for (const mesh of s.meshes) {
                                     if (!(mesh instanceof Mesh)) continue
-                                    _transformSnapshots.set(
-                                        mesh,
-                                        captureTransformSnapshot(mesh)
-                                    )
                                     const metadata = mesh.metadata as
                                         | {
                                               physicsMass?: number
@@ -611,6 +605,7 @@ export default function Home() {
                         selectedNode={selectedNode}
                         setSelectedNode={setSelectedNode}
                         setNodeTick={setNodeTick}
+                        scheduleAutoSave={scheduleAutoSave}
                     />
                 </Resizable.Panel>
                 <Resizable.Handle

@@ -108,6 +108,7 @@ interface NodeSnapshot {
     color?: [number, number, number]
     intensity?: number
     direction?: [number, number, number]
+    size?: Record<string, number>
     scripts?: string[]
     children?: NodeSnapshot[]
 }
@@ -165,6 +166,10 @@ function snapshotNode(node: Node): NodeSnapshot {
         const mat = node.material
         if (mat instanceof StandardMaterial) {
             snap.color = color3ToArray(mat.diffuseColor)
+        }
+        const meta = node.metadata as { size?: Record<string, number> } | undefined
+        if (meta?.size && Object.keys(meta.size).length > 0) {
+            snap.size = meta.size
         }
     }
 
@@ -297,7 +302,7 @@ export function addMeshToScene(scene: Scene, options: AddMeshOptions): Mesh {
         mat.diffuseColor = new Color3(0.6, 0.6, 0.6)
     }
     mesh.material = mat
-    mesh.metadata = { physicsMass: 1, physicsEnabled: false }
+    mesh.metadata = { physicsMass: 1, physicsEnabled: false, size: sz ?? {} }
 
     if (options.position) {
         mesh.position = new Vector3(

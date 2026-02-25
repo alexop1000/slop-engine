@@ -2,6 +2,7 @@ import {
     Scene,
     Node,
     TransformNode,
+    AbstractMesh,
     UniversalCamera,
     Vector3,
     Color3,
@@ -66,6 +67,18 @@ Object.assign(SlopMath, {
         return length - Math.abs(mod - length)
     },
 })
+
+// Patch getBoundingSize() onto AbstractMesh so scripts can query actual
+// geometry dimensions (the `size` param bakes into vertices, leaving
+// scaling at [1,1,1] — this returns the real extents).
+if (!(AbstractMesh.prototype as any).getBoundingSize) {
+    ;(AbstractMesh.prototype as any).getBoundingSize = function (
+        this: AbstractMesh
+    ): Vector3 {
+        const bb = this.getBoundingInfo().boundingBox
+        return bb.extendSize.scale(2)
+    }
+}
 
 /**
  * Compiles user TypeScript source to a Script subclass constructor.

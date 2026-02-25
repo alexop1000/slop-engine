@@ -172,6 +172,9 @@ export class RuntimeWorld {
             )
         }
 
+        // Store size in metadata so scripts can query actual dimensions
+        mesh.metadata = { size: sz ?? {} }
+
         // Track for cleanup
         this._runtimeNodes.add(mesh)
 

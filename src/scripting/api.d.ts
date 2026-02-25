@@ -457,6 +457,22 @@ declare class AbstractMesh extends TransformNode {
 declare class Mesh extends AbstractMesh {
     /** The physics body attached to this mesh, or null if none. */
     physicsBody: PhysicsBody | null
+
+    /**
+     * Return the axis-aligned bounding box size of this mesh in local space.
+     * This reflects the actual geometry dimensions (including baked `size`
+     * parameters), multiplied by `scaling`.
+     *
+     * Use this instead of reading `scaling` directly — when a mesh is created
+     * with a `size` parameter the dimensions are baked into the geometry and
+     * `scaling` stays `[1,1,1]`.
+     *
+     * @example
+     * const platform = this.findMesh('ground')!
+     * const bounds = platform.getBoundingSize()
+     * this.log(bounds.x, bounds.y, bounds.z) // e.g. 30, 1, 8
+     */
+    getBoundingSize(): Vector3
 }
 
 /** A physics body attached to a mesh. */

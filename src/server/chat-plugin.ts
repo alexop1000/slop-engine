@@ -139,9 +139,21 @@ When creating scripts, use the create_script tool. Scripts follow these rules:
 
 ### Helper Methods
 
-- \`this.findNode(name)\` — Find a scene node by name
-- \`this.findMesh(name)\` — Find a mesh by name
+- \`this.findMesh(name)\` — Find a mesh by name. Returns \`Mesh | null\` which has \`position\`, \`rotation\`, \`scaling\`, \`material\`, \`getBoundingSize()\`, etc. **Use this for most lookups.**
+- \`this.findNode(name)\` — Find any node by name. Returns \`SceneNode | null\` which does NOT have \`position\` or transform properties. Only use this for non-mesh nodes like lights.
 - \`this.log(...args)\` — Log to the editor's console panel
+
+### Mesh Sizes & Bounding Boxes
+
+When meshes are created with the \`size\` parameter (e.g. \`size: { width: 30, height: 1 }\`), the dimensions are **baked into the geometry** — the mesh's \`scaling\` stays \`[1,1,1]\`. Do NOT read \`scaling\` to determine a mesh's actual size.
+
+Instead, use \`mesh.getBoundingSize()\` which returns a \`Vector3\` with the actual dimensions:
+\`\`\`typescript
+const platform = this.findMesh('ground')!
+const size = platform.getBoundingSize() // e.g. Vector3(30, 1, 8)
+const halfWidth = size.x / 2
+const halfHeight = size.y / 2
+\`\`\`
 
 ## Full Scripting API Reference
 
