@@ -56,6 +56,25 @@ const SCRIPT_EXT = ['.ts', '.tsx', '.js', '.jsx']
 const INVALID_NAME_CHARS = /[\\/:*?"<>|]/
 const MAX_DEDUP_RETRIES = 100
 
+const DEFAULT_SCRIPT_CONTENT = `export default class extends Script {
+
+    // Called when play mode starts
+    start() {
+
+    }
+
+    // Called every frame during play mode
+    update() {
+
+    }
+
+    // Called when the script instance is destroyed (e.g. node is removed)
+    destroy() {
+
+    }
+}
+`
+
 // ── Pure helpers ───────────────────────────────────────────
 
 function joinPath(parent: string, name: string): string {
@@ -250,11 +269,25 @@ export default function AssetPanel(props: AssetPanelProps) {
         if (!source || !target) return
         if (source.path === '' || source.path === target.path) return
 
+        const oldPath = source.path
         store.moveNode(source.path, target.path, event.position)
 
+        // Migrate blobs when the file moves to a different parent folder
         if (event.position === 'inside') {
             const newBase = `${target.path}/${source.name}`
-            migrateBlobs(store, source, source.path, newBase)
+            migrateBlobs(store, source, oldPath, newBase)
+        } else {
+            const sourceParent = oldPath.slice(0, oldPath.lastIndexOf('/'))
+            const targetParent = target.path.slice(
+                0,
+                target.path.lastIndexOf('/')
+            )
+            if (sourceParent !== targetParent) {
+                const newBase = targetParent
+                    ? `${targetParent}/${source.name}`
+                    : source.name
+                migrateBlobs(store, source, oldPath, newBase)
+            }
         }
     }
 
@@ -354,6 +387,16 @@ export default function AssetPanel(props: AssetPanelProps) {
                 store.addNode(m.parentPath ?? '', val, 'folder')
             } else if (m.type === 'newFile') {
                 store.addNode(m.parentPath ?? '', val, 'file')
+                const ext = val.slice(val.lastIndexOf('.')).toLowerCase()
+                if (SCRIPT_EXT.includes(ext)) {
+                    const filePath = joinPath(m.parentPath ?? '', val)
+                    setBlob(
+                        filePath,
+                        new Blob([DEFAULT_SCRIPT_CONTENT], {
+                            type: 'text/plain',
+                        })
+                    )
+                }
             } else if (m.type === 'rename' && m.currentPath) {
                 const oldPath = m.currentPath
                 const node = store.findNode(store.tree(), oldPath)
@@ -431,6 +474,8 @@ export default function AssetPanel(props: AssetPanelProps) {
     }
 
     function handleDrop(e: DragEvent) {
+        // Only handle external file drops, not internal tree reorder drags
+        if (!e.dataTransfer?.types.includes('Files')) return
         e.preventDefault()
         e.stopPropagation()
 
@@ -450,6 +495,8 @@ export default function AssetPanel(props: AssetPanelProps) {
     }
 
     function handleDragOver(e: DragEvent) {
+        // Only handle external file drops, not internal tree reorder drags
+        if (!e.dataTransfer?.types.includes('Files')) return
         e.preventDefault()
         e.stopPropagation()
         e.dataTransfer!.dropEffect = 'copy'

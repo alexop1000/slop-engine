@@ -251,21 +251,48 @@ export function createAssetStore() {
                 return next
             })
         } else {
-            const parentPath = getParentPath(targetPath)
-            const parent = findNode(tree(), parentPath)
-            if (!parent) return
-            const siblings = [...(parent.children ?? [])]
-            const srcIdx = siblings.findIndex((c) => c.path === sourcePath)
-            const tgtIdx = siblings.findIndex((c) => c.path === targetPath)
-            if (srcIdx === -1 || tgtIdx === -1) return
-            const [removed] = siblings.splice(srcIdx, 1)
-            const insertIdx = position === 'before' ? tgtIdx : tgtIdx + 1
-            siblings.splice(insertIdx, 0, removed)
+            const targetParentPath = getParentPath(targetPath)
+            const sourceParentPath = getParentPath(sourcePath)
+            const isCrossParent = sourceParentPath !== targetParentPath
+            // For cross-parent moves, prevent dropping into own subtree
+            if (isCrossParent && sourcePath.startsWith(targetParentPath + '/')) return
+
             setTree((prev) => {
                 const next = JSON.parse(JSON.stringify(prev))
-                const p = findNode(next, parentPath)
-                if (!p) return prev
-                p.children = siblings.map((s) => findNode(next, s.path) ?? s)
+                // Remove source from its old parent
+                const oldParent = findParent(next, sourcePath)
+                if (!oldParent) return prev
+                const src = (oldParent.children ?? []).find(
+                    (c) => c.path === sourcePath
+                )
+                if (!src) return prev
+                oldParent.children = (oldParent.children ?? []).filter(
+                    (c) => c.path !== sourcePath
+                )
+
+                // Find target parent and insertion index (post-removal)
+                const newParent = findNode(next, targetParentPath)
+                if (!newParent) return prev
+                const tgtIdx = (newParent.children ?? []).findIndex(
+                    (c) => c.path === targetPath
+                )
+                if (tgtIdx === -1) return prev
+
+                // Update paths when moving across folders
+                if (isCrossParent) {
+                    const newPath = joinPath(targetParentPath, src.name)
+                    if (src.type === 'folder' && src.children?.length) {
+                        src.children = src.children.map((c) =>
+                            renamePathRecursive(c, src.path, newPath)
+                        )
+                    }
+                    src.path = newPath
+                }
+
+                const insertIdx =
+                    position === 'before' ? tgtIdx : tgtIdx + 1
+                newParent.children = newParent.children ?? []
+                newParent.children.splice(insertIdx, 0, src)
                 return next
             })
         }
