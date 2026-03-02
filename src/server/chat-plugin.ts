@@ -908,7 +908,7 @@ export function chatApiPlugin(): Plugin {
 
                     const result = streamText({
                         model: openrouter.chat(
-                            env.OPENROUTER_MODEL ?? 'arcee-ai/arcee-blitz'
+                            env.OPENROUTER_MODEL ?? 'arcee-ai/trinity-large-preview:free'
                         ),
                         system: buildSystemPrompt(server.config.root),
                         tools: {
