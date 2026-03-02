@@ -145,6 +145,53 @@ export class Script<N extends Node = TransformNode> {
         return this._world.clone(source, name)
     }
 
+    /** Spawn a prefab asset from the asset store. Cleaned up automatically on stop. */
+    spawnPrefab(
+        path: string,
+        options?: {
+            name?: string
+            position?: { x: number; y: number; z: number }
+            rotation?: { x: number; y: number; z: number }
+            scale?: { x: number; y: number; z: number }
+        }
+    ): Promise<Node>
+    spawnPrefab(path: string, onSpawn: (node: Node) => void): void
+    spawnPrefab(
+        path: string,
+        options: {
+            name?: string
+            position?: { x: number; y: number; z: number }
+            rotation?: { x: number; y: number; z: number }
+            scale?: { x: number; y: number; z: number }
+        } | undefined,
+        onSpawn: (node: Node) => void
+    ): void
+    spawnPrefab(
+        path: string,
+        options?:
+            | {
+                  name?: string
+                  position?: { x: number; y: number; z: number }
+                  rotation?: { x: number; y: number; z: number }
+                  scale?: { x: number; y: number; z: number }
+              }
+            | ((node: Node) => void),
+        onSpawn?: (node: Node) => void
+    ): Promise<Node> | void {
+        const resolvedOnSpawn =
+            typeof options === 'function' ? options : onSpawn
+        const resolvedOptions =
+            typeof options === 'function' ? undefined : options
+
+        const promise = this._world.spawnPrefab(path, resolvedOptions)
+        if (!resolvedOnSpawn) return promise
+        void promise
+            .then((node) => resolvedOnSpawn(node))
+            .catch((err) =>
+                pushLog('error', `Failed to spawn prefab "${path}":`, err)
+            )
+    }
+
     /** Add a physics body to a mesh at runtime. */
     addPhysics(mesh: Mesh, mass?: number, restitution?: number): void {
         this._world.addPhysics(mesh, mass, restitution)

@@ -23,7 +23,7 @@ function extToLanguage(path: string): string {
 const monacoTs = (monaco.languages as any).typescript as {
     typescriptDefaults: {
         setCompilerOptions(options: Record<string, unknown>): void
-        addExtraLib(content: string, filePath?: string): void
+        addExtraLib(content: string, filePath?: string): { dispose(): void }
     }
     ScriptTarget: Record<string, number>
     ModuleKind: Record<string, number>
@@ -32,29 +32,35 @@ const monacoTs = (monaco.languages as any).typescript as {
 
 /** Configure Monaco's TypeScript defaults for script editing. */
 let _tsDefaultsConfigured = false
+let _apiLibDisposable: { dispose(): void } | null = null
 function configureMonacoDefaults() {
-    if (_tsDefaultsConfigured) return
-    _tsDefaultsConfigured = true
-
     const tsDefaults = monacoTs.typescriptDefaults
 
-    tsDefaults.setCompilerOptions({
-        target: monacoTs.ScriptTarget.ESNext,
-        module: monacoTs.ModuleKind.ESNext,
-        moduleResolution: monacoTs.ModuleResolutionKind.NodeJs,
-        allowNonTsExtensions: true,
-        strict: true,
-        noEmit: true,
-        // Prevent default lib from polluting the script environment
-        // with DOM types, Node types, etc.
-        noLib: true,
-        // Still include basic ES types
-        lib: ['esnext'],
-    })
+    if (!_tsDefaultsConfigured) {
+        _tsDefaultsConfigured = true
+        tsDefaults.setCompilerOptions({
+            target: monacoTs.ScriptTarget.ESNext,
+            module: monacoTs.ModuleKind.ESNext,
+            moduleResolution: monacoTs.ModuleResolutionKind.NodeJs,
+            allowNonTsExtensions: true,
+            strict: true,
+            noEmit: true,
+            // Prevent default lib from polluting the script environment
+            // with DOM types, Node types, etc.
+            noLib: true,
+            // Still include basic ES types
+            lib: ['esnext'],
+        })
+    }
+
+    _apiLibDisposable?.dispose()
 
     // Register our curated API type definitions so scripts get
     // autocomplete and type checking for Script, Vector3, etc.
-    tsDefaults.addExtraLib(apiTypes, 'slop-engine://api.d.ts')
+    _apiLibDisposable = tsDefaults.addExtraLib(
+        apiTypes,
+        'slop-engine://api.d.ts'
+    )
 }
 
 export default function ScriptPanel() {
@@ -90,6 +96,9 @@ export default function ScriptPanel() {
 
     onCleanup(() => {
         clearTimeout(saveTimeout)
+        _apiLibDisposable?.dispose()
+        _apiLibDisposable = null
+        _tsDefaultsConfigured = false
         editor?.dispose()
     })
 

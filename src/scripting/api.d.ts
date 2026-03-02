@@ -130,6 +130,52 @@ declare class Script {
     clone(source: Mesh, name?: string): Mesh
 
     /**
+     * Spawn a prefab file from the asset store at runtime.
+     * Prefab nodes are automatically destroyed when play stops.
+        *
+        * You can use either:
+        * - Promise style: `await this.spawnPrefab(path, options)`
+        * - Callback style: `this.spawnPrefab(path, options, (node) => { ... })`
+     *
+     * @param path     Asset path to a `.prefab.json` file (for example `prefabs/crate.prefab.json`).
+     * @param options  Optional name and transform override for the prefab root.
+        * @returns A Promise resolving to the prefab root node (Promise overload).
+     *
+     * @example
+    * this.spawnPrefab(
+    *     'prefabs/enemy.prefab.json',
+    *     { position: this.node.position.clone() },
+    *     (enemy) => {
+    *         enemy.name = 'Enemy_' + Math.floor(this.time)
+    *     }
+    * )
+     */
+    spawnPrefab(
+        path: string,
+        options?: {
+            name?: string
+            position?: Vector3
+            rotation?: Vector3
+            scale?: Vector3
+        }
+    ): Promise<SceneNode>
+
+    /** Callback overload for spawning a prefab without `await`. */
+    spawnPrefab(path: string, onSpawn: (node: SceneNode) => void): void
+
+    /** Callback overload for spawning a prefab without `await` with options. */
+    spawnPrefab(
+        path: string,
+        options: {
+            name?: string
+            position?: Vector3
+            rotation?: Vector3
+            scale?: Vector3
+        } | undefined,
+        onSpawn: (node: SceneNode) => void
+    ): void
+
+    /**
      * Add a physics body to a mesh at runtime.
      *
      * @param mesh         The mesh to add physics to.

@@ -2,6 +2,7 @@ import {
     Scene,
     Mesh,
     Node,
+    TransformNode,
     MeshBuilder,
     StandardMaterial,
     Color3,
@@ -13,6 +14,8 @@ import {
 } from 'babylonjs'
 import { pushLog } from './consoleStore'
 import type { CollisionCallback, CollisionEvent } from './Script'
+import { getBlob } from '../assetStore'
+import { instantiatePrefabInScene } from '../scene/SceneOperations'
 
 /** Options for creating a primitive mesh at runtime. */
 export interface SpawnPrimitiveOptions {
@@ -33,6 +36,14 @@ export interface SpawnPrimitiveOptions {
         mass?: number
         restitution?: number
     }
+}
+
+/** Options for spawning a prefab asset at runtime. */
+export interface SpawnPrefabOptions {
+    name?: string
+    position?: { x: number; y: number; z: number }
+    rotation?: { x: number; y: number; z: number }
+    scale?: { x: number; y: number; z: number }
 }
 
 /**
@@ -212,6 +223,70 @@ export class RuntimeWorld {
         return cloned
     }
 
+    /** Spawn a prefab asset from the asset store. Returns the root node. */
+    async spawnPrefab(path: string, options?: SpawnPrefabOptions): Promise<Node> {
+        const blob = await getBlob(path)
+        if (!blob) {
+            throw new Error(`Prefab not found: "${path}"`)
+        }
+
+        const json = await blob.text()
+        const root = instantiatePrefabInScene(this._scene, json)
+
+        if (options?.name) {
+            root.name = options.name
+        }
+
+        if (root instanceof TransformNode) {
+            if (options?.position) {
+                root.position = new Vector3(
+                    options.position.x,
+                    options.position.y,
+                    options.position.z
+                )
+            }
+            if (options?.rotation) {
+                root.rotation = new Vector3(
+                    options.rotation.x,
+                    options.rotation.y,
+                    options.rotation.z
+                )
+            }
+            if (options?.scale) {
+                root.scaling = new Vector3(
+                    options.scale.x,
+                    options.scale.y,
+                    options.scale.z
+                )
+            }
+        }
+
+        this._runtimeNodes.add(root)
+        this._enablePrefabPhysics(root)
+
+        return root
+    }
+
+    private _enablePrefabPhysics(root: Node): void {
+        const stack: Node[] = [root]
+        while (stack.length > 0) {
+            const node = stack.pop()!
+
+            if (node instanceof Mesh) {
+                const meta = node.metadata as
+                    | { physicsEnabled?: boolean; physicsMass?: number }
+                    | undefined
+                if (meta?.physicsEnabled) {
+                    this.addPhysics(node, meta.physicsMass ?? 1, 0.75)
+                }
+            }
+
+            for (const child of node.getChildren()) {
+                stack.push(child)
+            }
+        }
+    }
+
     /** Add physics to a mesh at runtime. */
     addPhysics(mesh: Mesh, mass = 1, restitution = 0.75): void {
         if (this._physicsAggregates.has(mesh)) {
@@ -231,26 +306,48 @@ export class RuntimeWorld {
 
     /** Destroy a runtime-created node immediately. */
     destroyNode(node: Node): void {
-        if (!this._runtimeNodes.has(node)) {
+        if (!this._isManagedNode(node)) {
             pushLog('warn', `Node "${node.name}" was not created at runtime`)
             return
         }
-        // Dispose physics first if present
-        if (node instanceof Mesh) {
-            const agg = this._physicsAggregates.get(node)
-            if (agg) {
-                agg.dispose()
-                this._physicsAggregates.delete(node)
-            }
-            if (node.material) {
-                node.material.dispose()
-            }
-            // Clean up collision callbacks for this mesh
-            this._collisionStartMap.delete(node.uniqueId)
-            this._collisionEndMap.delete(node.uniqueId)
-        }
+
+        this._disposeNodeResources(node)
         node.dispose()
         this._runtimeNodes.delete(node)
+    }
+
+    private _isManagedNode(node: Node): boolean {
+        let current: Node | null = node
+        while (current) {
+            if (this._runtimeNodes.has(current)) return true
+            current = current.parent ?? null
+        }
+        return false
+    }
+
+    private _disposeNodeResources(root: Node): void {
+        const stack: Node[] = [root]
+        while (stack.length > 0) {
+            const node = stack.pop()!
+
+            if (node instanceof Mesh) {
+                const agg = this._physicsAggregates.get(node)
+                if (agg) {
+                    agg.dispose()
+                    this._physicsAggregates.delete(node)
+                }
+                if (node.material) {
+                    node.material.dispose()
+                }
+                this._collisionStartMap.delete(node.uniqueId)
+                this._collisionEndMap.delete(node.uniqueId)
+            }
+
+            this._runtimeNodes.delete(node)
+            for (const child of node.getChildren()) {
+                stack.push(child)
+            }
+        }
     }
 
     // -- Collision Observables ------------------------------------------------
