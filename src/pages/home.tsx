@@ -1,797 +1,120 @@
-import {
-    createSignal,
-    createEffect,
-    createMemo,
-    onMount,
-    onCleanup,
-    untrack,
-} from 'solid-js'
-import {
-    Engine,
-    Scene,
-    Mesh,
-    Node,
-    Color3,
-    GizmoManager,
-    UtilityLayerRenderer,
-    PhysicsAggregate,
-    PhysicsShapeType,
-    HavokPlugin,
-} from 'babylonjs'
-import HavokPhysics from '@babylonjs/havok'
+import { HavokPlugin } from 'babylonjs'
 
-import Resizable from 'corvu/resizable'
-import { makePersisted } from '@solid-primitives/storage'
-import { play, stop } from 'solid-heroicons/solid'
 import {
-    arrowPath,
-    arrowsPointingOut,
-    arrowsRightLeft,
-    cubeTransparent,
-    arrowDownTray,
-    arrowUpTray,
-    arrowRightCircle,
-} from 'solid-heroicons/outline'
-import { Icon } from 'solid-heroicons'
-import Handle from '../components/Handle'
-import {
-    AIPanel,
-    AssetPanel,
-    ViewportPanel,
-    ConsolePanel,
-    ScenePanel,
-    ScriptPanel,
-    PropertiesPanel,
-} from '../components/panels'
-import {
-    Button,
-    IconButton,
-    Tooltip,
-    Tabs,
-    TabPanel,
-    Modal,
-    ModalHeader,
-    ModalBody,
-    ModalFooter,
-} from '../components/ui'
+    ResetConfirmModal,
+    EditorTopbar,
+    EditorLayout,
+} from '../components/editor'
 import {
     createDefaultScene,
     loadSceneFromJson,
-    serializeScene,
+    setupEditorCamera,
     downloadSceneBundle,
     importSceneBundle,
-    setupEditorCamera,
-    captureSceneSnapshot,
-    restoreSceneSnapshot,
-    setupRuntimeCamera,
 } from '../scene/EditorScene'
-import type { SceneSnapshot } from '../scene/EditorScene'
-import { onScriptOpen } from '../scriptEditorStore'
-import { ScriptRuntime } from '../scripting/ScriptRuntime'
-import { getAssetStore, clearAllBlobs, type AssetNode } from '../assetStore'
-import { clearLogs } from '../scripting/consoleStore'
+import { getInitializedHavok } from '../utils/editorUtils'
+import { getAssetStore, clearAllBlobs } from '../assetStore'
 import { clearAllSessions } from '../chatHistoryStore'
-
-const SCRIPT_EXT = ['.ts', '.tsx', '.js', '.jsx']
-
-function collectScriptPaths(node: AssetNode): string[] {
-    if (node.type === 'file') {
-        const lower = node.path.toLowerCase()
-        return SCRIPT_EXT.some((ext) => lower.endsWith(ext)) ? [node.path] : []
-    }
-    const paths: string[] = []
-    for (const child of node.children ?? []) {
-        paths.push(...collectScriptPaths(child))
-    }
-    return paths
-}
-
-async function getInitializedHavok() {
-    return await HavokPhysics()
-}
+import { useEditorState } from '../hooks/useEditorState'
+import { useEditorEngine } from '../hooks/useEditorEngine'
 
 export default function Home() {
-    const [sizes, setSizes] = makePersisted(createSignal<number[]>([]), {
-        name: 'resizable-sizes-v1',
-    })
-    const [sceneSizes, setSceneSizes] = makePersisted(
-        createSignal<number[]>([]),
-        {
-            name: 'scene-resizable-sizes-v1',
-        }
-    )
-    const [propertiesSizes, setPropertiesSizes] = makePersisted(
-        createSignal<number[]>([]),
-        {
-            name: 'properties-resizable-sizes-v1',
-        }
-    )
-    const [sceneJson, setSceneJson] = makePersisted(
-        createSignal<string | null>(null),
-        { name: 'slop-engine-scene-v1' }
-    )
+    const state = useEditorState()
+    const engine = useEditorEngine(state)
 
-    const [isPlaying, setIsPlaying] = createSignal(false)
-    const [scene, setScene] = createSignal<Scene>()
-    const [selectedNode, setSelectedNode] = createSignal<Node>()
-    const [engine, setEngine] = createSignal<Engine>()
-    const [nodeTick, setNodeTick] = createSignal(0)
+    let bundleInputRef: HTMLInputElement | undefined
 
-    const [gizmoManager, setGizmoManager] = createSignal<GizmoManager>()
-    const [selectedGizmo, _setSelectedGizmo] = createSignal<
-        'position' | 'rotation' | 'scale' | 'boundingBox'
-    >('position')
-
-    const [isDirty, setIsDirty] = createSignal(false)
-    const [lastSaved, setLastSaved] = createSignal<Date | null>(null)
-    let _autoSaveTimer: ReturnType<typeof setTimeout> | null = null
-    let _bundleInputRef: HTMLInputElement | undefined
-    const [showResetConfirm, setShowResetConfirm] = createSignal(false)
-
-    function performSave(s: Scene) {
-        setSceneJson(serializeScene(s))
-        setLastSaved(new Date())
-        setIsDirty(false)
-    }
-
-    function scheduleAutoSave() {
-        setIsDirty(true)
-        if (_autoSaveTimer) clearTimeout(_autoSaveTimer)
-        _autoSaveTimer = setTimeout(() => {
-            const s = scene()
-            if (!s || isPlaying()) return
-            performSave(s)
-        }, 2000)
-    }
-
-    // Script tab switching
-    const [viewportTab, setViewportTab] = createSignal<string | undefined>(
-        undefined
-    )
-    onScriptOpen(() => setViewportTab('script'))
-
-    let _isDraggingGizmo = false
-    const _physicsAggregates = new Map<Mesh, PhysicsAggregate>()
-    let _sceneSnapshot: SceneSnapshot | null = null
-    let _scriptRuntime: ScriptRuntime | null = null
-
-    // Derive available script file paths from the shared asset store
-    const assetStore = getAssetStore()
-    const scriptAssets = createMemo(() => collectScriptPaths(assetStore.tree()))
-    function hookGizmoDrag() {
-        const gm = gizmoManager()
-        if (!gm) return
-        for (const g of [
-            gm.gizmos.positionGizmo,
-            gm.gizmos.rotationGizmo,
-            gm.gizmos.scaleGizmo,
-            gm.gizmos.boundingBoxGizmo,
-        ]) {
-            if (g && !(g as any).__dragHooked) {
-                ;(g as any).__dragHooked = true
-                const gizmo = g as any
-                gizmo.onDragStartObservable?.add(() => {
-                    _isDraggingGizmo = true
-                })
-                gizmo.onDragEndObservable?.add(() => {
-                    _isDraggingGizmo = false
-                    setNodeTick((t) => t + 1)
-                    scheduleAutoSave()
-                })
-            }
-        }
-    }
-
-    const setSelectedGizmo = (
-        gizmo: 'position' | 'rotation' | 'scale' | 'boundingBox'
-    ) => {
-        _setSelectedGizmo(gizmo)
-        gizmoManager()!.positionGizmoEnabled = gizmo === 'position'
-        gizmoManager()!.rotationGizmoEnabled = gizmo === 'rotation'
-        gizmoManager()!.scaleGizmoEnabled = gizmo === 'scale'
-        gizmoManager()!.boundingBoxGizmoEnabled = gizmo === 'boundingBox'
-        gizmoManager()?.attachToMesh(
-            selectedNode() instanceof Mesh ? (selectedNode() as Mesh) : null
-        )
-        hookGizmoDrag()
-    }
-
-    // Reactively sync gizmo + outline whenever selectedNode changes
-    let _lastOutlinedMesh: Mesh | null = null
-    createEffect(() => {
-        const node = selectedNode()
-        const gm = gizmoManager()
-
-        // Remove previous outline
-        if (_lastOutlinedMesh && _lastOutlinedMesh !== node) {
-            _lastOutlinedMesh.renderOutline = false
-        }
-        _lastOutlinedMesh = null
-
-        if (node instanceof Mesh) {
-            node.renderOutline = true
-            node.outlineColor = new Color3(0, 0, 0)
-            node.outlineWidth = 0.05
-            _lastOutlinedMesh = node
-
-            if (gm) {
-                const gizmo = untrack(selectedGizmo)
-                gm.positionGizmoEnabled = gizmo === 'position'
-                gm.rotationGizmoEnabled = gizmo === 'rotation'
-                gm.scaleGizmoEnabled = gizmo === 'scale'
-                gm.boundingBoxGizmoEnabled = gizmo === 'boundingBox'
-                gm.attachToMesh(node)
-                hookGizmoDrag()
-            }
-        } else if (gm) {
-            gm.positionGizmoEnabled = false
-            gm.rotationGizmoEnabled = false
-            gm.scaleGizmoEnabled = false
-            gm.boundingBoxGizmoEnabled = false
-        }
-    })
-
-    onMount(async () => {
-        const canvas = document.getElementById('canvas') as HTMLCanvasElement
-        const eng = new Engine(canvas, true)
+    const handleReset = async () => {
+        const eng = state.engine()
+        if (!eng) return
         const initializedHavok = await getInitializedHavok()
         const physicsPlugin = new HavokPlugin(true, initializedHavok)
+        const { scene: newScene } = createDefaultScene(eng, physicsPlugin)
+        setupEditorCamera(
+            newScene,
+            document.getElementById('canvas') as HTMLCanvasElement
+        )
+        await clearAllBlobs()
+        await clearAllSessions()
+        state.setScene(newScene)
+        state.setSelectedNode(undefined)
+        state.setSceneJson(null)
+        state.setLastSaved(null)
+        state.setIsDirty(false)
+    }
 
-        let scene: Scene
-        const savedJson = sceneJson()
-        if (savedJson) {
-            try {
-                const result = await loadSceneFromJson(
-                    eng,
-                    savedJson,
-                    physicsPlugin
-                )
-                scene = result.scene
-            } catch {
-                const result = createDefaultScene(eng, physicsPlugin)
-                scene = result.scene
-            }
-        } else {
-            const result = createDefaultScene(eng, physicsPlugin)
-            scene = result.scene
+    const handleBundleImport = async (e: Event) => {
+        const file = (e.currentTarget as HTMLInputElement).files?.[0]
+        if (!file) return
+        const eng = state.engine()
+        if (!eng) return
+        try {
+            const { sceneJson: bundleJson, assetTree } =
+                await importSceneBundle(file)
+            const initializedHavok = await getInitializedHavok()
+            const physicsPlugin = new HavokPlugin(true, initializedHavok)
+            const { scene: newScene } = await loadSceneFromJson(
+                eng,
+                bundleJson,
+                physicsPlugin
+            )
+            setupEditorCamera(
+                newScene,
+                document.getElementById('canvas') as HTMLCanvasElement
+            )
+            getAssetStore().setTree(assetTree)
+            state.setScene(newScene)
+            state.setSelectedNode(undefined)
+            state.setSceneJson(bundleJson)
+            state.setLastSaved(new Date())
+            state.setIsDirty(false)
+        } catch (err) {
+            console.error('Failed to import bundle:', err)
         }
-
-        setupEditorCamera(scene, canvas)
-
-        const utilityLayer = new UtilityLayerRenderer(scene)
-        const gizmoManager = new GizmoManager(scene, undefined, utilityLayer)
-        gizmoManager.positionGizmoEnabled = false
-        gizmoManager.rotationGizmoEnabled = false
-        gizmoManager.scaleGizmoEnabled = false
-        gizmoManager.enableAutoPicking = false
-        gizmoManager.boundingBoxGizmoEnabled = false
-        let pointerDownPos: { x: number; y: number } | null = null
-        let hasDragged = false
-        const DRAG_THRESHOLD = 5
-        canvas.addEventListener('pointerdown', (e) => {
-            if (isPlaying()) return
-            pointerDownPos = { x: e.clientX, y: e.clientY }
-            hasDragged = false
-        })
-        canvas.addEventListener('pointermove', (e) => {
-            if (isPlaying()) return
-            if (pointerDownPos && !hasDragged) {
-                const dx = e.clientX - pointerDownPos.x
-                const dy = e.clientY - pointerDownPos.y
-                if (Math.hypot(dx, dy) > DRAG_THRESHOLD) {
-                    hasDragged = true
-                }
-            }
-        })
-        canvas.addEventListener('pointerup', (e) => {
-            if (isPlaying()) return
-            // Only handle selection if this was a click (no drag)
-            if (!hasDragged && pointerDownPos) {
-                const result = scene.pick(
-                    e.offsetX,
-                    e.offsetY,
-                    (node) => node instanceof Mesh
-                )
-                if (result.hit && result.pickedMesh) {
-                    setSelectedNode(result.pickedMesh as Mesh)
-                } else {
-                    setSelectedNode(undefined)
-                }
-            }
-            pointerDownPos = null
-            hasDragged = false
-        })
-        setGizmoManager(gizmoManager)
-        scene.onBeforeRenderObservable.add(() => {
-            if (_isDraggingGizmo) setNodeTick((t) => t + 1)
-        })
-
-        scene.onNewMeshAddedObservable.add(() => scheduleAutoSave())
-        scene.onMeshRemovedObservable.add(() => scheduleAutoSave())
-        scene.onNewLightAddedObservable.add(() => scheduleAutoSave())
-        scene.onLightRemovedObservable.add(() => scheduleAutoSave())
-        scene.onNewTransformNodeAddedObservable.add(() => scheduleAutoSave())
-        scene.onTransformNodeRemovedObservable.add(() => scheduleAutoSave())
-
-        // Periodic save catches property edits (material, physics settings, etc.)
-        const periodicInterval = setInterval(() => {
-            if (isPlaying()) return
-            performSave(scene)
-        }, 30_000)
-        onCleanup(() => clearInterval(periodicInterval))
-
-        // Mark as saved after initial load
-        setLastSaved(new Date())
-
-        setScene(scene)
-        setEngine(eng)
-        eng.runRenderLoop(() => scene.render())
-
-        // Watch for canvas container resize
-        const resizeObserver = new ResizeObserver(() => {
-            eng.resize()
-        })
-        resizeObserver.observe(canvas.parentElement!)
-
-        // On window resize
-        window.addEventListener('resize', () => {
-            eng.resize()
-        })
-    })
+        ;(e.currentTarget as HTMLInputElement).value = ''
+    }
 
     return (
         <section class="bg-gray-900 text-gray-100 size-full p-2 flex flex-col">
-            {/* Topbar */}
-            <div class="flex items-center mb-2 bg-gray-800 p-2 rounded-md gap-5">
-                <div class="flex items-center space-x-1 gap-1">
-                    <Button
-                        variant={isPlaying() ? 'primary' : 'secondary'}
-                        size="md"
-                        onClick={async () => {
-                            const s = scene()
-                            if (!s) return
-                            if (isPlaying()) {
-                                // Stop scripts first so update() can't
-                                // mutate transforms after we restore them
-                                if (_scriptRuntime) {
-                                    _scriptRuntime.stop()
-                                    _scriptRuntime = null
-                                }
-
-                                // Dispose physics aggregates before restoring
-                                // transforms so the engine can't overwrite
-                                // positions in a pending physics step
-                                for (const [, agg] of _physicsAggregates) {
-                                    agg.dispose()
-                                }
-                                _physicsAggregates.clear()
-
-                                // Wait one frame so the engine flushes any
-                                // in-flight physics/render updates, then
-                                // restore the saved scene state
-                                await new Promise<void>((resolve) =>
-                                    requestAnimationFrame(() => resolve())
-                                )
-
-                                if (_sceneSnapshot) {
-                                    restoreSceneSnapshot(s, _sceneSnapshot)
-                                    _sceneSnapshot = null
-                                }
-
-                                gizmoManager()!.attachToMesh(
-                                    selectedNode() instanceof Mesh
-                                        ? (selectedNode() as Mesh)
-                                        : null
-                                )
-                                gizmoManager()!.positionGizmoEnabled =
-                                    selectedGizmo() === 'position'
-                                gizmoManager()!.rotationGizmoEnabled =
-                                    selectedGizmo() === 'rotation'
-                                gizmoManager()!.scaleGizmoEnabled =
-                                    selectedGizmo() === 'scale'
-                                gizmoManager()!.boundingBoxGizmoEnabled =
-                                    selectedGizmo() === 'boundingBox'
-
-                                const canvas = document.getElementById(
-                                    'canvas'
-                                ) as HTMLCanvasElement
-                                setupEditorCamera(s, canvas)
-                                setIsPlaying(false)
-                            } else {
-                                clearLogs()
-
-                                // Capture full scene state before play
-                                _sceneSnapshot = captureSceneSnapshot(s)
-
-                                for (const mesh of s.meshes) {
-                                    if (!(mesh instanceof Mesh)) continue
-                                    const metadata = mesh.metadata as
-                                        | {
-                                              physicsMass?: number
-                                              physicsEnabled?: boolean
-                                          }
-                                        | undefined
-                                    const mass = metadata?.physicsMass ?? 1
-                                    const enabled =
-                                        metadata?.physicsEnabled ?? false
-                                    if (enabled) {
-                                        const agg = new PhysicsAggregate(
-                                            mesh,
-                                            PhysicsShapeType.CONVEX_HULL,
-                                            { mass, restitution: 0.75 },
-                                            s
-                                        )
-                                        // Allow direct position/rotation changes to move the body
-                                        agg.body.disablePreStep = false
-                                        _physicsAggregates.set(mesh, agg)
-                                    }
-                                }
-
-                                gizmoManager()!.attachToMesh(null)
-                                gizmoManager()!.positionGizmoEnabled = false
-                                gizmoManager()!.rotationGizmoEnabled = false
-                                gizmoManager()!.scaleGizmoEnabled = false
-                                gizmoManager()!.boundingBoxGizmoEnabled = false
-
-                                // Set up runtime camera before scripts so
-                                // scripts receive the correct camera reference
-                                const canvas = document.getElementById(
-                                    'canvas'
-                                ) as HTMLCanvasElement
-                                setupRuntimeCamera(s, canvas)
-
-                                _scriptRuntime = new ScriptRuntime()
-                                await _scriptRuntime.start(s, canvas)
-
-                                setIsPlaying(true)
-                            }
-                        }}
-                    >
-                        <Icon path={isPlaying() ? stop : play} class="size-5" />
-                        <span class="ml-2">
-                            {isPlaying() ? 'Stop' : 'Play'}
-                        </span>
-                    </Button>
-                    <span
-                        class={`text-xs px-1 ${
-                            isDirty() ? 'text-yellow-400' : 'text-green-400'
-                        }`}
-                        style={{
-                            visibility:
-                                lastSaved() || isDirty() ? 'visible' : 'hidden',
-                        }}
-                    >
-                        {isDirty() ? '● Unsaved' : '● Saved'}
-                    </span>
-                    <div class="w-px h-4 bg-gray-600 mx-1" />
-                    <Tooltip
-                        content="Export scene + assets (.slop)"
-                        position="bottom"
-                    >
-                        <IconButton
-                            label="Export"
-                            variant="ghost"
-                            size="sm"
-                            onClick={async () => {
-                                const s = scene()
-                                if (s && !isPlaying()) {
-                                    await downloadSceneBundle(s)
-                                }
-                            }}
-                        >
-                            <Icon path={arrowDownTray} class="size-5" />
-                        </IconButton>
-                    </Tooltip>
-                    <Tooltip
-                        content="Import scene + assets (.slop)"
-                        position="bottom"
-                    >
-                        <IconButton
-                            label="Import"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => _bundleInputRef?.click()}
-                        >
-                            <Icon path={arrowUpTray} class="size-5" />
-                        </IconButton>
-                    </Tooltip>
-                    <input
-                        ref={_bundleInputRef}
-                        type="file"
-                        accept=".slop"
-                        class="hidden"
-                        onChange={async (e) => {
-                            const file = e.currentTarget.files?.[0]
-                            if (!file) return
-                            try {
-                                const { sceneJson: json, assetTree } =
-                                    await importSceneBundle(file)
-                                assetStore.setTree(assetTree)
-                                setSceneJson(json)
-                                globalThis.location.reload()
-                            } catch (err) {
-                                console.error('Failed to import bundle:', err)
-                            }
-                        }}
-                    />
-                    <div class="w-px h-4 bg-gray-600 mx-1" />
-                    <Tooltip content="Reset to default scene" position="bottom">
-                        <IconButton
-                            label="Reset"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                                if (isPlaying()) return
-                                setShowResetConfirm(true)
-                            }}
-                        >
-                            <Icon path={arrowRightCircle} class="size-5" />
-                        </IconButton>
-                    </Tooltip>
-                    <div class="w-px h-4 bg-gray-600 mx-1" />
-                </div>
-
-                <div class="flex items-center space-x-1">
-                    <Tooltip content="Rotate" position="bottom">
-                        <IconButton
-                            label="Rotate"
-                            variant={
-                                selectedGizmo() === 'rotation'
-                                    ? 'primary'
-                                    : 'ghost'
-                            }
-                            size="sm"
-                            onClick={() => setSelectedGizmo('rotation')}
-                        >
-                            <Icon path={arrowPath} class="size-5" />
-                        </IconButton>
-                    </Tooltip>
-                    <Tooltip content="Scale" position="bottom">
-                        <IconButton
-                            label="Scale"
-                            variant={
-                                selectedGizmo() === 'scale'
-                                    ? 'primary'
-                                    : 'ghost'
-                            }
-                            size="sm"
-                            onClick={() => setSelectedGizmo('scale')}
-                        >
-                            <Icon path={arrowsPointingOut} class="size-5" />
-                        </IconButton>
-                    </Tooltip>
-                    <Tooltip content="Move" position="bottom">
-                        <IconButton
-                            label="Move"
-                            variant={
-                                selectedGizmo() === 'position'
-                                    ? 'primary'
-                                    : 'ghost'
-                            }
-                            size="sm"
-                            onClick={() => setSelectedGizmo('position')}
-                        >
-                            <Icon path={arrowsRightLeft} class="size-5" />
-                        </IconButton>
-                    </Tooltip>
-                    <Tooltip content="Bounding Box" position="bottom">
-                        <IconButton
-                            label="Bounding Box"
-                            variant={
-                                selectedGizmo() === 'boundingBox'
-                                    ? 'primary'
-                                    : 'ghost'
-                            }
-                            size="sm"
-                            onClick={() => setSelectedGizmo('boundingBox')}
-                        >
-                            <Icon path={cubeTransparent} class="size-5" />
-                        </IconButton>
-                    </Tooltip>
-                </div>
-            </div>
-            <Resizable
-                sizes={sizes()}
-                onSizesChange={(sizes) => {
-                    setSizes(sizes)
-                    engine()?.resize()
+            <ResetConfirmModal
+                open={state.showResetConfirm()}
+                onClose={() => state.setShowResetConfirm(false)}
+                onConfirm={handleReset}
+            />
+            <input
+                ref={(el) => {
+                    bundleInputRef = el
                 }}
-                class="size-full overflow-hidden"
-            >
-                <Resizable.Panel
-                    initialSize={0.2}
-                    minSize={0.05}
-                    class="bg-gray-800 p-2 rounded-md"
-                >
-                    <AIPanel
-                        scene={scene}
-                        selectedNode={selectedNode}
-                        setSelectedNode={setSelectedNode}
-                        setNodeTick={setNodeTick}
-                        scheduleAutoSave={scheduleAutoSave}
-                    />
-                </Resizable.Panel>
-                <Resizable.Handle
-                    class="group basis-3 px-1"
-                    startIntersection={false}
-                    endIntersection={false}
-                >
-                    <Handle />
-                </Resizable.Handle>
-
-                <Resizable.Panel
-                    initialSize={0.75}
-                    minSize={0.1}
-                    class="h-full"
-                >
-                    <Resizable
-                        orientation="vertical"
-                        class="size-full"
-                        sizes={sceneSizes()}
-                        onSizesChange={(sizes) => {
-                            setSceneSizes(sizes)
-                            engine()?.resize()
-                        }}
-                    >
-                        <Resizable.Panel
-                            initialSize={0.9}
-                            minSize={0.1}
-                            class="bg-gray-800 p-2 rounded-md h-full overflow-hidden flex flex-col"
-                        >
-                            <Tabs
-                                tabs={[
-                                    { id: 'viewport', label: 'Viewport' },
-                                    { id: 'script', label: 'Script' },
-                                ]}
-                                defaultTab="viewport"
-                                activeTab={viewportTab}
-                                onChange={(id) => setViewportTab(id)}
-                                class="flex flex-col flex-1 min-h-0"
-                                contentClass="flex-1 min-h-0 flex flex-col"
-                            >
-                                <TabPanel
-                                    tabId="viewport"
-                                    class="flex-1 min-h-0"
-                                >
-                                    <ViewportPanel />
-                                </TabPanel>
-                                <TabPanel tabId="script" class="flex-1 min-h-0">
-                                    <ScriptPanel />
-                                </TabPanel>
-                            </Tabs>
-                        </Resizable.Panel>
-                        <Resizable.Handle class="group basis-3 py-1">
-                            <Handle />
-                        </Resizable.Handle>
-                        <Resizable.Panel
-                            initialSize={0.1}
-                            minSize={0.05}
-                            class="bg-gray-800 p-2 rounded-md h-full overflow-hidden"
-                        >
-                            <Tabs
-                                tabs={[
-                                    { id: 'console', label: 'Console' },
-                                    { id: 'assets', label: 'Assets' },
-                                ]}
-                                defaultTab="console"
-                                class="flex flex-col h-full min-h-0"
-                                contentClass="flex-1 min-h-0 flex flex-col"
-                            >
-                                <TabPanel
-                                    tabId="console"
-                                    class="flex-1 min-h-0"
-                                >
-                                    <ConsolePanel />
-                                </TabPanel>
-                                <TabPanel tabId="assets" class="flex-1 min-h-0">
-                                    <AssetPanel
-                                        scene={scene}
-                                        setSelectedNode={setSelectedNode}
-                                        setNodeTick={setNodeTick}
-                                    />
-                                </TabPanel>
-                            </Tabs>
-                        </Resizable.Panel>
-                    </Resizable>
-                </Resizable.Panel>
-                <Resizable.Handle
-                    class="group basis-3 px-1"
-                    startIntersection={false}
-                    endIntersection={false}
-                >
-                    <Handle />
-                </Resizable.Handle>
-                <Resizable.Panel
-                    initialSize={0.2}
-                    minSize={0.15}
-                    class="size-full"
-                >
-                    <Resizable
-                        orientation="vertical"
-                        class="size-full"
-                        sizes={propertiesSizes()}
-                        onSizesChange={(sizes) => {
-                            setPropertiesSizes(sizes)
-                            engine()?.resize()
-                        }}
-                    >
-                        <Resizable.Panel
-                            initialSize={0.5}
-                            minSize={0.05}
-                            class="bg-gray-800 p-2 rounded-md size-full overflow-y-auto"
-                        >
-                            <ScenePanel
-                                scene={scene}
-                                selectedNode={selectedNode}
-                                setSelectedNode={setSelectedNode}
-                                nodeTick={nodeTick}
-                                setNodeTick={setNodeTick}
-                            />
-                        </Resizable.Panel>
-                        <Resizable.Handle class="group basis-3 py-1">
-                            <Handle />
-                        </Resizable.Handle>
-                        <Resizable.Panel
-                            initialSize={0.5}
-                            minSize={0.05}
-                            class="bg-gray-800 p-2 rounded-md overflow-y-auto"
-                        >
-                            <PropertiesPanel
-                                node={() => {
-                                    nodeTick()
-                                    return selectedNode()
-                                }}
-                                setNodeTick={setNodeTick}
-                                scriptAssets={scriptAssets}
-                            />
-                        </Resizable.Panel>
-                    </Resizable>
-                </Resizable.Panel>
-            </Resizable>
-
-            {/* Reset confirmation modal */}
-            <Modal
-                open={showResetConfirm()}
-                onClose={() => setShowResetConfirm(false)}
-                size="sm"
-            >
-                <ModalHeader>Reset Scene</ModalHeader>
-                <ModalBody>
-                    <p class="text-sm text-gray-300">
-                        This will delete the current scene{' '}
-                        <strong>and all assets</strong>. This action cannot be
-                        undone.
-                    </p>
-                </ModalBody>
-                <ModalFooter>
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setShowResetConfirm(false)}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={async () => {
-                            assetStore.setTree({
-                                id: '__root__',
-                                name: 'Assets',
-                                type: 'folder',
-                                path: '',
-                                children: [],
-                            })
-                            await clearAllBlobs()
-                            await clearAllSessions()
-                            setSceneJson(null)
-                            globalThis.location.reload()
-                        }}
-                    >
-                        Reset Everything
-                    </Button>
-                </ModalFooter>
-            </Modal>
+                type="file"
+                accept=".slop"
+                class="hidden"
+                onChange={handleBundleImport}
+            />
+            <EditorTopbar
+                isPlaying={state.isPlaying}
+                onPlayStop={engine.handlePlayStop}
+                onResetClick={() => {
+                    if (state.isPlaying()) return
+                    state.setShowResetConfirm(true)
+                }}
+                onDownload={() => {
+                    const s = state.scene()
+                    if (s) downloadSceneBundle(s)
+                }}
+                onImportClick={() => bundleInputRef?.click()}
+                isVibeMode={state.isVibeMode}
+                onVibeModeToggle={() => state.setIsVibeMode((v) => !v)}
+                isDirty={state.isDirty}
+                lastSaved={state.lastSaved}
+                selectedGizmo={state.selectedGizmo}
+                onGizmoSelect={engine.setSelectedGizmo}
+            />
+            <EditorLayout
+                state={state}
+                scheduleAutoSave={engine.scheduleAutoSave}
+                handlePlayStop={engine.handlePlayStop}
+                onEngineResize={() => state.engine()?.resize()}
+            />
         </section>
     )
 }

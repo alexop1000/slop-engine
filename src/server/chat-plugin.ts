@@ -32,10 +32,21 @@ function buildSystemPrompt(projectRoot: string): string {
 - Build complex scenes in one call with bulk_scene
 - Import 3D models (.glb, .gltf, .obj) from the asset store with import_asset
 - List available model assets with list_assets
+- Save scene nodes as prefab assets with save_prefab
 - Modify any node's position, rotation, scale, color, or name with update_node
 - Remove nodes from the scene with delete_node
 - Create, read, edit, and delete scripts
 - Attach and detach scripts to/from nodes
+- Start and stop the game simulation with play_simulation and stop_simulation
+- Read and write scene state while the simulation is running (get_scene, update_node, etc.)
+
+## Simulation Control
+
+- Use \`play_simulation\` to start the game. Scripts run, physics is active.
+- Use \`stop_simulation\` to stop and restore the scene to its pre-play state.
+- Use \`sleep\` to wait for a number of seconds (e.g. 2) — useful for runtime testing: start simulation, sleep, then check get_scene or get_console_logs.
+- Use \`get_console_logs\` to read what scripts have logged via \`this.log()\`. Use after sleep to inspect runtime output.
+- While running, you can use get_scene to read current positions/transforms and update_node to modify them. Physics-enabled objects may override position changes on the next frame.
 
 ## Scene Manipulation
 
@@ -95,7 +106,7 @@ Use \`bulk_scene\` when creating or modifying 3+ objects. It takes an \`operatio
 
 ### Tool Reference
 
-- \`get_scene\` — JSON snapshot of all nodes (names, types, transforms, colors, hierarchy)
+- \`get_scene\` — JSON with \`simulation\` ("running"|"stopped") and \`nodes\` (names, types, transforms, colors, hierarchy)
 - \`add_mesh\` — Create a mesh. Required: \`type\`. Optional: \`name\`, \`position\`, \`rotationDegrees\`, \`scale\`, \`color\`, \`size\`
 - \`add_light\` — Create a light. Required: \`type\`. Optional: \`name\`, \`position\`, \`direction\`, \`intensity\`, \`color\`
 - \`update_node\` — Update a node. Required: \`name\`. Optional: \`position\`, \`rotationDegrees\`, \`scale\`, \`color\`, \`intensity\`, \`rename\`
@@ -112,6 +123,11 @@ Use \`bulk_scene\` when creating or modifying 3+ objects. It takes an \`operatio
 - \`delete_script\` — Delete a script file. Required: \`path\`
 - \`list_assets\` — List importable 3D models (.glb, .gltf, .obj)
 - \`import_asset\` — Import a model into the scene. Required: \`path\`. Optional: \`position\`, \`scale\`
+- \`save_prefab\` — Save a scene node (including children) as a .prefab.json asset. Required: \`node\`. Optional: \`path\`
+- \`play_simulation\` — Start the game simulation (scripts run, physics active)
+- \`stop_simulation\` — Stop the simulation and restore the scene
+- \`sleep\` — Wait for N seconds. Use for runtime testing (e.g. play, sleep 2, get_console_logs)
+- \`get_console_logs\` — Read logs from scripts' \`this.log()\` calls. Works anytime.
 
 ## Creating Scripts
 
@@ -167,6 +183,7 @@ ${apiDts}
 - When the user asks to "move/scale/rotate something", use get_scene to find it, then update_node
 - When asked to change colors, use update_node with the color parameter
 - For complex scene setups, call get_scene first, then use multiple tools
+- When the user asks to save an object as a prefab, use save_prefab with the exact node name
 - When the user asks to "make something spin/move/bounce/etc.", create a script with create_script, then attach it to the node with attach_script
 - To modify an existing script, use read_script first, then edit_script for targeted changes
 - Prefer simple, readable code. Avoid over-engineering.
@@ -209,7 +226,7 @@ const createScriptTool = {
 
 const getSceneTool = {
     description:
-        'Get a JSON snapshot of all nodes in the current 3D scene, including types, positions, rotations, scales, colors, and hierarchy. Call this first to understand the scene before making changes.',
+        'Get a JSON snapshot of the scene. Returns { simulation: "running"|"stopped", nodes: [...] }. Nodes include types, positions, rotations, scales, colors, hierarchy. Works during play—nodes reflect current runtime state. Call first to understand the scene.',
     inputSchema: jsonSchema<Record<string, never>>({
         type: 'object',
         properties: {},
@@ -590,6 +607,29 @@ const importAssetTool = {
     }),
 }
 
+const savePrefabTool = {
+    description:
+        'Save a scene node (including children) as a prefab file in the asset store. Defaults to prefabs/<node>.prefab.json unless a path is provided.',
+    inputSchema: jsonSchema<{
+        node: string
+        path?: string
+    }>({
+        type: 'object',
+        properties: {
+            node: {
+                type: 'string',
+                description: 'The exact scene node name to save as a prefab.',
+            },
+            path: {
+                type: 'string',
+                description:
+                    'Optional asset path for the prefab file (e.g. "prefabs/crate.prefab.json"). If omitted, uses prefabs/<node>.prefab.json.',
+            },
+        },
+        required: ['node'],
+    }),
+}
+
 const createGroupTool = {
     description:
         'Create an empty TransformNode group for organizing objects. Use set_parent to add children.',
@@ -633,6 +673,49 @@ const setParentTool = {
             },
         },
         required: ['node', 'parent'],
+    }),
+}
+
+const playSimulationTool = {
+    description:
+        'Start the game simulation. Scripts will run, physics will be active. Use stop_simulation to stop.',
+    inputSchema: jsonSchema<Record<string, never>>({
+        type: 'object',
+        properties: {},
+    }),
+}
+
+const stopSimulationTool = {
+    description:
+        'Stop the game simulation and restore the scene to its state before play.',
+    inputSchema: jsonSchema<Record<string, never>>({
+        type: 'object',
+        properties: {},
+    }),
+}
+
+const sleepTool = {
+    description:
+        'Wait for a number of seconds. Useful for runtime testing: start simulation, sleep, then check get_scene or get_console_logs. Max 30 seconds.',
+    inputSchema: jsonSchema<{ seconds: number }>({
+        type: 'object',
+        properties: {
+            seconds: {
+                type: 'number',
+                description:
+                    'Seconds to wait. Use 1–3 for typical script output checks.',
+            },
+        },
+        required: ['seconds'],
+    }),
+}
+
+const getConsoleLogsTool = {
+    description:
+        'Read the editor console logs. Scripts output via this.log() appears here. Use after sleep during play to inspect runtime output.',
+    inputSchema: jsonSchema<Record<string, never>>({
+        type: 'object',
+        properties: {},
     }),
 }
 
@@ -846,6 +929,11 @@ export function chatApiPlugin(): Plugin {
                             delete_script: deleteScriptTool,
                             list_assets: listAssetsTool,
                             import_asset: importAssetTool,
+                            save_prefab: savePrefabTool,
+                            play_simulation: playSimulationTool,
+                            stop_simulation: stopSimulationTool,
+                            sleep: sleepTool,
+                            get_console_logs: getConsoleLogsTool,
                         },
                         messages: modelMessages,
                     })

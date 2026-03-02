@@ -26,6 +26,7 @@ import {
 } from '../../chatHistoryStore'
 import { getAssetStore, getBlob, setBlob, deleteBlob } from '../../assetStore'
 import { openScript, openScriptFile } from '../../scriptEditorStore'
+import { logs, type LogEntry } from '../../scripting/consoleStore'
 import {
     addMeshToScene,
     addLightToScene,
@@ -36,6 +37,7 @@ import {
     createGroupInScene,
     setParentInScene,
     executeBulkOperations,
+    serializeNodeAsPrefab,
     type AddMeshOptions,
     type AddLightOptions,
     type UpdateNodeOptions,
@@ -45,6 +47,20 @@ import {
 } from '../../scene/SceneOperations'
 
 marked.setOptions({ breaks: true, gfm: true })
+
+function formatLogArg(arg: unknown): string {
+    if (arg === null) return 'null'
+    if (arg === undefined) return 'undefined'
+    if (typeof arg === 'string') return arg
+    if (typeof arg === 'object') {
+        try {
+            return JSON.stringify(arg, null, 2)
+        } catch {
+            return Object.prototype.toString.call(arg)
+        }
+    }
+    return String(arg)
+}
 
 // ── Tool call types (AI SDK v6 UIToolInvocation format) ─────────────
 
@@ -255,6 +271,35 @@ function ToolCallIndicator(props: Readonly<{ part: ToolUIPart }>) {
                 if (isDone()) return `Imported ${p ?? 'model'}`
                 return `Importing ${p ?? 'model'}…`
             }
+            case 'save_prefab': {
+                const n = inp?.node as string | undefined
+                const p = inp?.path as string | undefined
+                if (isError()) return `Failed to save prefab for ${n ?? 'node'}`
+                if (isDone()) {
+                    return p
+                        ? `Saved prefab ${p}`
+                        : `Saved prefab for ${n ?? 'node'}`
+                }
+                return `Saving prefab for ${n ?? 'node'}…`
+            }
+            case 'play_simulation':
+                if (isError()) return 'Failed to start simulation'
+                if (isDone()) return 'Started simulation'
+                return 'Starting simulation…'
+            case 'stop_simulation':
+                if (isError()) return 'Failed to stop simulation'
+                if (isDone()) return 'Stopped simulation'
+                return 'Stopping simulation…'
+            case 'sleep': {
+                const sec = inp?.seconds as number | undefined
+                if (isError()) return 'Sleep failed'
+                if (isDone()) return `Waited ${sec ?? '?'}s`
+                return `Waiting ${sec ?? '?'}s…`
+            }
+            case 'get_console_logs':
+                if (isError()) return 'Failed to read console'
+                if (isDone()) return 'Read console logs'
+                return 'Reading console…'
             default:
                 if (isDone()) return `Ran ${name}`
                 return `Running ${name}…`
@@ -455,6 +500,12 @@ export default function AIPanel(
         setSelectedNode: (node: Node | undefined) => void
         setNodeTick: Setter<number>
         scheduleAutoSave: () => void
+        isPlaying: Accessor<boolean>
+        requestPlay: () => Promise<void>
+        requestStop: () => Promise<void>
+        isPlaying: Accessor<boolean>
+        requestPlay: () => Promise<void>
+        requestStop: () => Promise<void>
     }>
 ) {
     const [input, setInput] = createSignal('')
@@ -708,7 +759,15 @@ export default function AIPanel(
     const executeGetScene = (): string => {
         const s = props.scene()
         if (!s) throw new Error('Scene not initialized')
-        return JSON.stringify(getSceneSnapshot(s), null, 2)
+        const snapshot = getSceneSnapshot(s)
+        return JSON.stringify(
+            {
+                simulation: props.isPlaying() ? 'running' : 'stopped',
+                nodes: snapshot,
+            },
+            null,
+            2
+        )
     }
 
     const executeAddMesh = (args: AddMeshOptions): string => {
@@ -935,6 +994,7 @@ export default function AIPanel(
     }
 
     const resolveAsset: AssetResolver = (path) => getBlob(path)
+    const PREFAB_EXT = '.prefab.json'
 
     const executeImportAsset = async (args: {
         path: string
@@ -979,6 +1039,86 @@ export default function AIPanel(
         props.setSelectedNode(root)
         props.setNodeTick((t) => t + 1)
         return `Imported "${args.path}" as "${root.name}"`
+    }
+
+    const executeSavePrefab = async (args: {
+        node: string
+        path?: string
+    }): Promise<string> => {
+        const s = props.scene()
+        if (!s) throw new Error('Scene not initialized')
+
+        const sourceNode = s.getNodeByName(args.node)
+        if (!sourceNode) {
+            throw new Error(`Node "${args.node}" not found`)
+        }
+
+        const store = getAssetStore()
+
+        const sanitizedNodeName = args.node.trim().replaceAll(/[\\/]+/g, '_')
+        if (!sanitizedNodeName) {
+            throw new Error('Node name is empty')
+        }
+
+        let path = args.path?.trim() || `prefabs/${sanitizedNodeName}`
+        if (path.startsWith('/')) path = path.slice(1)
+        if (!path.endsWith(PREFAB_EXT)) {
+            path = `${path}${PREFAB_EXT}`
+        }
+
+        const segments = path.split('/').filter(Boolean)
+        if (segments.length === 0) {
+            throw new Error('Invalid prefab path')
+        }
+
+        const fileName = segments.at(-1)!
+        let parentPath = ''
+        for (let i = 0; i < segments.length - 1; i++) {
+            const dirName = segments[i]
+            const dirPath = parentPath ? `${parentPath}/${dirName}` : dirName
+            if (!store.findNode(store.tree(), dirPath)) {
+                store.addNode(parentPath, dirName, 'folder')
+            }
+            parentPath = dirPath
+        }
+
+        if (!store.findNode(store.tree(), path)) {
+            store.addNode(parentPath, fileName, 'file')
+        }
+
+        const json = serializeNodeAsPrefab(sourceNode)
+        await setBlob(path, new Blob([json], { type: 'application/json' }))
+
+        return `Saved "${args.node}" as prefab at "${path}"`
+    }
+
+    const executePlaySimulation = async (): Promise<string> => {
+        if (props.isPlaying()) return 'Simulation is already running'
+        await props.requestPlay()
+        return 'Simulation started'
+    }
+
+    const executeStopSimulation = async (): Promise<string> => {
+        if (!props.isPlaying()) return 'Simulation is already stopped'
+        await props.requestStop()
+        return 'Simulation stopped'
+    }
+
+    const executeSleep = async (args: { seconds: number }): Promise<string> => {
+        const sec = Math.min(30, Math.max(0.1, args.seconds))
+        await new Promise((r) => setTimeout(r, sec * 1000))
+        return `Waited ${sec} seconds`
+    }
+
+    const executeGetConsoleLogs = (): string => {
+        const entries = logs()
+        if (entries.length === 0) return 'No console logs yet.'
+        const formatted = entries.map((e: LogEntry) => ({
+            level: e.level,
+            message: e.args.map(formatLogArg).join(' '),
+            timestamp: e.timestamp,
+        }))
+        return JSON.stringify(formatted, null, 2)
     }
 
     const executeTool = async (
@@ -1042,6 +1182,18 @@ export default function AIPanel(
                         scale?: [number, number, number]
                     }
                 )
+            case 'save_prefab':
+                return executeSavePrefab(
+                    input as { node: string; path?: string }
+                )
+            case 'play_simulation':
+                return executePlaySimulation()
+            case 'stop_simulation':
+                return executeStopSimulation()
+            case 'sleep':
+                return executeSleep(input as { seconds: number })
+            case 'get_console_logs':
+                return executeGetConsoleLogs()
             default:
                 throw new Error(`Unknown tool: ${toolName}`)
         }
