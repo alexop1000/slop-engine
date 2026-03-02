@@ -1,9 +1,4 @@
-import {
-    createSignal,
-    createMemo,
-    type Accessor,
-    type Setter,
-} from 'solid-js'
+import { createSignal, createMemo, type Accessor, type Setter } from 'solid-js'
 import type { Scene, Node, Engine, GizmoManager } from 'babylonjs'
 import { makePersisted } from '@solid-primitives/storage'
 import { getAssetStore } from '../assetStore'
@@ -75,13 +70,13 @@ export function useEditorState(): EditorState {
             const v = vibeModeSizes()
             const ai = v[0] ?? 0.35
             const center = v[1] ?? 0.65
-            return [ai, center, 0]
+            return [ai, center]
         }
         return sizes()
     })
 
     const centerVerticalSizes = createMemo(() => {
-        if (isVibeMode()) return [1, 0]
+        if (isVibeMode()) return [1]
         return sceneSizes()
     })
 
@@ -97,7 +92,8 @@ export function useEditorState(): EditorState {
     const [nodeTick, setNodeTick] = createSignal(0)
 
     const [gizmoManager, setGizmoManager] = createSignal<GizmoManager>()
-    const [selectedGizmo, setSelectedGizmo] = createSignal<GizmoType>('position')
+    const [selectedGizmo, setSelectedGizmo] =
+        createSignal<GizmoType>('position')
 
     const [isDirty, setIsDirty] = createSignal(false)
     const [lastSaved, setLastSaved] = createSignal<Date | null>(null)

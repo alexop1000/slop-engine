@@ -1,4 +1,5 @@
 import Resizable from 'corvu/resizable'
+import { Show } from 'solid-js'
 import Handle from '../Handle'
 import {
     AIPanel,
@@ -44,7 +45,7 @@ export function EditorLayout(props: Readonly<EditorLayoutProps>) {
             sizes={mainSizes()}
             onSizesChange={(newSizes) => {
                 if (isVibeMode()) {
-                    setVibeModeSizes([newSizes[0], newSizes[1]])
+                    setVibeModeSizes(newSizes)
                 } else {
                     setSizes(newSizes)
                 }
@@ -69,7 +70,8 @@ export function EditorLayout(props: Readonly<EditorLayoutProps>) {
                             await props.handlePlayStop()
                     }}
                     requestStop={async () => {
-                        if (props.state.isPlaying()) await props.handlePlayStop()
+                        if (props.state.isPlaying())
+                            await props.handlePlayStop()
                     }}
                 />
             </Resizable.Panel>
@@ -80,11 +82,7 @@ export function EditorLayout(props: Readonly<EditorLayoutProps>) {
             >
                 <Handle />
             </Resizable.Handle>
-            <Resizable.Panel
-                initialSize={0.75}
-                minSize={0.1}
-                class="h-full"
-            >
+            <Resizable.Panel initialSize={0.75} minSize={0.1} class="h-full">
                 <Resizable
                     orientation="vertical"
                     class="size-full"
@@ -102,8 +100,7 @@ export function EditorLayout(props: Readonly<EditorLayoutProps>) {
                         <div
                             class="flex flex-col flex-1 min-h-0"
                             classList={{
-                                '[&>div>div:first-child]:hidden':
-                                    isVibeMode(),
+                                '[&>div>div:first-child]:hidden': isVibeMode(),
                             }}
                         >
                             <Tabs
@@ -132,102 +129,104 @@ export function EditorLayout(props: Readonly<EditorLayoutProps>) {
                             </Tabs>
                         </div>
                     </Resizable.Panel>
-                    <Resizable.Handle
-                        class="group basis-3 py-1"
-                        classList={{ hidden: isVibeMode() }}
-                    >
-                        <Handle />
-                    </Resizable.Handle>
-                    <Resizable.Panel
-                        initialSize={0.1}
-                        minSize={isVibeMode() ? 0 : 0.05}
-                        class="bg-gray-800 p-2 rounded-md h-full overflow-hidden"
-                        classList={{ hidden: isVibeMode() }}
-                    >
-                        <Tabs
-                            tabs={[
-                                {
-                                    id: 'console',
-                                    label: 'Console',
-                                },
-                                { id: 'assets', label: 'Assets' },
-                            ]}
-                            defaultTab="console"
-                            class="flex flex-col h-full min-h-0"
-                            contentClass="flex-1 min-h-0 flex flex-col"
+                    <Show when={!isVibeMode()}>
+                        <Resizable.Handle class="group basis-3 py-1">
+                            <Handle />
+                        </Resizable.Handle>
+                    </Show>
+                    <Show when={!isVibeMode()}>
+                        <Resizable.Panel
+                            initialSize={0.1}
+                            minSize={0.05}
+                            class="bg-gray-800 p-2 rounded-md h-full overflow-hidden"
                         >
-                            <TabPanel
-                                tabId="console"
-                                class="flex-1 min-h-0"
+                            <Tabs
+                                tabs={[
+                                    {
+                                        id: 'console',
+                                        label: 'Console',
+                                    },
+                                    { id: 'assets', label: 'Assets' },
+                                ]}
+                                defaultTab="console"
+                                class="flex flex-col h-full min-h-0"
+                                contentClass="flex-1 min-h-0 flex flex-col"
                             >
-                                <ConsolePanel />
-                            </TabPanel>
-                            <TabPanel tabId="assets" class="flex-1 min-h-0">
-                                <AssetPanel
-                                    scene={scene}
-                                    setSelectedNode={setSelectedNode}
-                                    setNodeTick={setNodeTick}
-                                />
-                            </TabPanel>
-                        </Tabs>
-                    </Resizable.Panel>
+                                <TabPanel
+                                    tabId="console"
+                                    class="flex-1 min-h-0"
+                                >
+                                    <ConsolePanel />
+                                </TabPanel>
+                                <TabPanel tabId="assets" class="flex-1 min-h-0">
+                                    <AssetPanel
+                                        scene={scene}
+                                        setSelectedNode={setSelectedNode}
+                                        setNodeTick={setNodeTick}
+                                    />
+                                </TabPanel>
+                            </Tabs>
+                        </Resizable.Panel>
+                    </Show>
                 </Resizable>
             </Resizable.Panel>
-            <Resizable.Handle
-                class="group basis-3 px-1"
-                startIntersection={false}
-                endIntersection={false}
-                classList={{ hidden: isVibeMode() }}
-            >
-                <Handle />
-            </Resizable.Handle>
-            <Resizable.Panel
-                initialSize={0.2}
-                minSize={isVibeMode() ? 0 : 0.15}
-                class="size-full"
-                classList={{ hidden: isVibeMode() }}
-            >
-                <Resizable
-                    orientation="vertical"
-                    class="size-full"
-                    sizes={propertiesSizes()}
-                    onSizesChange={(sizes) => {
-                        setPropertiesSizes(sizes)
-                        props.onEngineResize()
-                    }}
+            <Show when={!isVibeMode()}>
+                <Resizable.Handle
+                    class="group basis-3 px-1"
+                    startIntersection={false}
+                    endIntersection={false}
                 >
-                    <Resizable.Panel
-                        initialSize={0.5}
-                        minSize={0.05}
-                        class="bg-gray-800 p-2 rounded-md size-full overflow-y-auto"
+                    <Handle />
+                </Resizable.Handle>
+            </Show>
+            <Show when={!isVibeMode()}>
+                <Resizable.Panel
+                    initialSize={0.2}
+                    minSize={0.15}
+                    class="size-full"
+                >
+                    <Resizable
+                        orientation="vertical"
+                        class="size-full"
+                        sizes={propertiesSizes()}
+                        onSizesChange={(sizes) => {
+                            setPropertiesSizes(sizes)
+                            props.onEngineResize()
+                        }}
                     >
-                        <ScenePanel
-                            scene={scene}
-                            selectedNode={selectedNode}
-                            setSelectedNode={setSelectedNode}
-                            nodeTick={nodeTick}
-                            setNodeTick={setNodeTick}
-                        />
-                    </Resizable.Panel>
-                    <Resizable.Handle class="group basis-3 py-1">
-                        <Handle />
-                    </Resizable.Handle>
-                    <Resizable.Panel
-                        initialSize={0.5}
-                        minSize={0.05}
-                        class="bg-gray-800 p-2 rounded-md overflow-y-auto"
-                    >
-                        <PropertiesPanel
-                            node={() => {
-                                nodeTick()
-                                return selectedNode()
-                            }}
-                            setNodeTick={setNodeTick}
-                            scriptAssets={scriptAssets}
-                        />
-                    </Resizable.Panel>
-                </Resizable>
-            </Resizable.Panel>
+                        <Resizable.Panel
+                            initialSize={0.5}
+                            minSize={0.05}
+                            class="bg-gray-800 p-2 rounded-md size-full overflow-y-auto"
+                        >
+                            <ScenePanel
+                                scene={scene}
+                                selectedNode={selectedNode}
+                                setSelectedNode={setSelectedNode}
+                                nodeTick={nodeTick}
+                                setNodeTick={setNodeTick}
+                            />
+                        </Resizable.Panel>
+                        <Resizable.Handle class="group basis-3 py-1">
+                            <Handle />
+                        </Resizable.Handle>
+                        <Resizable.Panel
+                            initialSize={0.5}
+                            minSize={0.05}
+                            class="bg-gray-800 p-2 rounded-md overflow-y-auto"
+                        >
+                            <PropertiesPanel
+                                node={() => {
+                                    nodeTick()
+                                    return selectedNode()
+                                }}
+                                setNodeTick={setNodeTick}
+                                scriptAssets={scriptAssets}
+                            />
+                        </Resizable.Panel>
+                    </Resizable>
+                </Resizable.Panel>
+            </Show>
         </Resizable>
     )
 }

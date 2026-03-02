@@ -503,9 +503,6 @@ export default function AIPanel(
         isPlaying: Accessor<boolean>
         requestPlay: () => Promise<void>
         requestStop: () => Promise<void>
-        isPlaying: Accessor<boolean>
-        requestPlay: () => Promise<void>
-        requestStop: () => Promise<void>
     }>
 ) {
     const [input, setInput] = createSignal('')
