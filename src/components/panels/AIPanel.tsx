@@ -21,11 +21,7 @@ import {
     generateChatId,
     titleFromMessages,
 } from '../../chatHistoryStore'
-import {
-    isToolPart,
-    getToolNameFromPart,
-    type ToolUIPart,
-} from './ai/types'
+import { isToolPart, getToolNameFromPart, type ToolUIPart } from './ai/types'
 import { ChatMessage } from './ai/ChatMessage'
 import { HistoryItem } from './ai/HistoryItem'
 import { createToolExecutor } from './ai/toolExecutor'
@@ -253,7 +249,8 @@ export default function AIPanel(
 
                 executeTool(
                     name,
-                    (toolPart.input as Record<string, unknown>) ?? {}
+                    (toolPart.input as Record<string, unknown>) ?? {},
+                    toolPart.toolCallId
                 )
                     .then((result) => {
                         chat.addToolOutput({
@@ -404,7 +401,7 @@ export default function AIPanel(
             </div>
 
             <Show when={showHistory()}>
-                <div class="flex-1 min-h-0 overflow-y-auto px-1 py-1 ai-scrollbar">
+                <div class="flex-1 min-h-0 overflow-y-auto px-1 py-1">
                     <Show
                         when={sessions().length > 0}
                         fallback={
@@ -443,7 +440,7 @@ export default function AIPanel(
             <Show when={!showHistory()}>
                 <div
                     ref={scrollContainer}
-                    class="flex-1 min-h-0 overflow-y-auto px-2 py-1 ai-scrollbar"
+                    class="flex-1 min-h-0 overflow-y-auto px-2 py-1"
                 >
                     <Show
                         when={chat.messages.length > 0}

@@ -18,6 +18,10 @@ You build and modify the 3D world: meshes, lights, hierarchy, imported models, a
 - Always use \`rotationDegrees\` (not \`rotation\`) for readability.
 - Group related objects with \`create_group\` + \`set_parent\`.
 
+### Limitations (not supported by scene tools)
+- **Capsule meshes**: Use \`cylinder\` instead.
+- **checkCollisions**: Cannot be set via scene tools; use scripts for collision logic.
+
 ### Mesh Sizes
 Use \`size\` to set dimensions directly instead of scale:
 - **box**: \`size: { width, height, depth }\`
@@ -35,7 +39,7 @@ Use \`size\` to set dimensions directly instead of scale:
 - \`delete_node\` — remove a node.
 - \`create_group\` — empty container node.
 - \`set_parent\` — reparent a node (or pass null to unparent).
-- \`bulk_scene\` — batch of add_mesh / add_light / update_node / delete_node / create_group / set_parent.
+- \`bulk_scene\` — batch of add_mesh / add_light / update_node / delete_node / create_group / set_parent. Each operation must have \`action\` plus that action's params. Use arrays for position/scale/color (e.g. \`[0, 1, 0]\`), not strings. Do not include checkCollisions or capsule type.
 - \`list_assets\` — list importable .glb/.gltf/.obj models.
 - \`import_asset\` — import a model into the scene.
 - \`save_prefab\` — serialise a node (+ children) as a reusable prefab asset.

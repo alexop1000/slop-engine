@@ -250,7 +250,7 @@ export function chatApiPlugin(): Plugin {
                     const response = {
                         text: result.text,
                         toolCalls: (
-                            result.toolCalls as unknown as AnyToolCall[]
+                            (result.toolCalls ?? []) as unknown as AnyToolCall[]
                         ).map((tc) => ({
                             toolCallId: tc.toolCallId,
                             toolName: tc.toolName,

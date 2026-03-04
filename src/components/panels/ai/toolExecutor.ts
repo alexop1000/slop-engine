@@ -1,6 +1,11 @@
 import type { Accessor, Setter } from 'solid-js'
 import type { Scene, Node } from 'babylonjs'
-import { getAssetStore, getBlob, setBlob, deleteBlob } from '../../../assetStore'
+import {
+    getAssetStore,
+    getBlob,
+    setBlob,
+    deleteBlob,
+} from '../../../assetStore'
 import { openScript, openScriptFile } from '../../../scriptEditorStore'
 import { logs, type LogEntry } from '../../../scripting/consoleStore'
 import {
@@ -21,7 +26,172 @@ import {
     type BulkOperation,
     type AssetResolver,
 } from '../../../scene/SceneOperations'
+
+const VALID_MESH_TYPES = [
+    'box',
+    'sphere',
+    'cylinder',
+    'cone',
+    'torus',
+    'pyramid',
+    'plane',
+    'ground',
+] as const
+
+function ensureNumberArray(
+    val: unknown,
+    length: number
+): [number, number, number] | undefined {
+    if (Array.isArray(val) && val.length >= length) {
+        const arr = val.slice(0, length).map(Number)
+        if (arr.every((n) => !Number.isNaN(n)))
+            return arr as [number, number, number]
+    }
+    if (typeof val === 'string') {
+        try {
+            const parsed = JSON.parse(val) as unknown
+            return ensureNumberArray(parsed, length)
+        } catch {
+            return undefined
+        }
+    }
+    return undefined
+}
+
+function sanitizeBulkOperations(
+    raw: Array<Record<string, unknown>>
+): BulkOperation[] {
+    const ops: BulkOperation[] = []
+    for (const op of raw) {
+        const action = String(
+            op && typeof op.action === 'string' ? op.action : ''
+        ).toLowerCase()
+        if (
+            ![
+                'add_mesh',
+                'add_light',
+                'update_node',
+                'delete_node',
+                'create_group',
+                'set_parent',
+            ].includes(action)
+        ) {
+            continue
+        }
+
+        const sanitized = { ...op, action } as Record<string, unknown>
+        delete sanitized.checkCollisions
+
+        if (action === 'add_mesh') {
+            let meshType = String(
+                sanitized.type && typeof sanitized.type === 'string'
+                    ? sanitized.type
+                    : 'box'
+            ).toLowerCase()
+            if (meshType === 'capsule') meshType = 'cylinder'
+            if (
+                !VALID_MESH_TYPES.includes(
+                    meshType as (typeof VALID_MESH_TYPES)[number]
+                )
+            ) {
+                meshType = 'box'
+            }
+            sanitized.type = meshType
+            const pos = ensureNumberArray(sanitized.position, 3)
+            if (pos) sanitized.position = pos
+            const scale = ensureNumberArray(sanitized.scale, 3)
+            if (scale) sanitized.scale = scale
+            const color = ensureNumberArray(sanitized.color, 3)
+            if (color) sanitized.color = color
+            const rot = ensureNumberArray(sanitized.rotationDegrees, 3)
+            if (rot) sanitized.rotationDegrees = rot
+            const rotRad = ensureNumberArray(sanitized.rotation, 3)
+            if (rotRad) sanitized.rotation = rotRad
+            if (
+                sanitized.size &&
+                typeof sanitized.size === 'object' &&
+                !Array.isArray(sanitized.size)
+            ) {
+                const size = sanitized.size as Record<string, unknown>
+                const clean: Record<string, number> = {}
+                for (const k of [
+                    'width',
+                    'height',
+                    'depth',
+                    'diameter',
+                    'thickness',
+                ]) {
+                    if (
+                        typeof size[k] === 'number' &&
+                        !Number.isNaN(size[k] as number)
+                    ) {
+                        clean[k] = size[k] as number
+                    }
+                }
+                if (Object.keys(clean).length > 0) sanitized.size = clean
+            }
+        } else if (action === 'add_light') {
+            const pos = ensureNumberArray(sanitized.position, 3)
+            if (pos) sanitized.position = pos
+            const dir = ensureNumberArray(sanitized.direction, 3)
+            if (dir) sanitized.direction = dir
+            const color = ensureNumberArray(sanitized.color, 3)
+            if (color) sanitized.color = color
+            if (
+                typeof sanitized.intensity !== 'number' ||
+                Number.isNaN(sanitized.intensity)
+            ) {
+                delete sanitized.intensity
+            }
+        } else if (action === 'update_node') {
+            if (typeof sanitized.name !== 'string' || !sanitized.name.trim())
+                continue
+            const pos = ensureNumberArray(sanitized.position, 3)
+            if (pos) sanitized.position = pos
+            const scale = ensureNumberArray(sanitized.scale, 3)
+            if (scale) sanitized.scale = scale
+            const color = ensureNumberArray(sanitized.color, 3)
+            if (color) sanitized.color = color
+            const rot = ensureNumberArray(sanitized.rotationDegrees, 3)
+            if (rot) sanitized.rotationDegrees = rot
+            const rotRad = ensureNumberArray(sanitized.rotation, 3)
+            if (rotRad) sanitized.rotation = rotRad
+            if (
+                typeof sanitized.intensity !== 'number' ||
+                Number.isNaN(sanitized.intensity)
+            ) {
+                delete sanitized.intensity
+            }
+        } else if (action === 'delete_node') {
+            if (typeof sanitized.name !== 'string' || !sanitized.name.trim())
+                continue
+        } else if (action === 'create_group') {
+            if (typeof sanitized.name !== 'string' || !sanitized.name.trim())
+                continue
+            const pos = ensureNumberArray(sanitized.position, 3)
+            if (pos) sanitized.position = pos
+        } else if (action === 'set_parent') {
+            if (typeof sanitized.node !== 'string' || !sanitized.node.trim())
+                continue
+            const parentVal = sanitized.parent
+            if (
+                parentVal !== null &&
+                (typeof parentVal !== 'string' || !parentVal.trim())
+            ) {
+                continue
+            }
+        }
+
+        ops.push(sanitized as BulkOperation)
+    }
+    return ops
+}
 import { formatLogArg } from './utils'
+import {
+    updateSubagent,
+    type SubagentTurn,
+    type SubagentToolCall,
+} from './subagentStore'
 
 export interface ToolExecutorContext {
     scene: Accessor<Scene | undefined>
@@ -89,7 +259,7 @@ type SubagentMessage =
 
 export function createToolExecutor(
     ctx: ToolExecutorContext
-): (toolName: string, input: unknown) => Promise<string> {
+): (toolName: string, input: unknown, toolCallId?: string) => Promise<string> {
     const executeCreateScript = async (args: {
         path: string
         content: string
@@ -211,11 +381,20 @@ export function createToolExecutor(
     }
 
     const executeBulkScene = (args: {
-        operations: BulkOperation[]
+        operations: BulkOperation[] | Array<Record<string, unknown>>
     }): string => {
         const s = ctx.scene()
         if (!s) throw new Error('Scene not initialized')
-        const results = executeBulkOperations(s, args.operations)
+        const raw = Array.isArray(args.operations) ? args.operations : []
+        const operations = sanitizeBulkOperations(
+            raw.map((o) =>
+                o && typeof o === 'object' ? { ...o } : { action: '' }
+            )
+        )
+        if (operations.length === 0) {
+            return 'Bulk: no valid operations. Ensure each operation has an "action" (add_mesh, add_light, update_node, delete_node, create_group, set_parent) and required params (add_mesh needs type; update_node/set_parent need name/node). Unsupported: checkCollisions, capsule (use cylinder).'
+        }
+        const results = executeBulkOperations(s, operations)
         ctx.setNodeTick((t) => t + 1)
         const succeeded = results.filter((r) => r.success).length
         const failed = results.filter((r) => !r.success).length
@@ -488,11 +667,14 @@ export function createToolExecutor(
         return JSON.stringify(formatted, null, 2)
     }
 
-    const executeSpawnAgent = async (args: {
-        agentType: 'scene' | 'script'
-        task: string
-        context?: string
-    }): Promise<string> => {
+    const executeSpawnAgent = async (
+        args: {
+            agentType: 'scene' | 'script'
+            task: string
+            context?: string
+        },
+        toolCallId?: string
+    ): Promise<string> => {
         const userContent = args.context
             ? `${args.task}\n\nContext:\n${args.context}`
             : args.task
@@ -503,6 +685,19 @@ export function createToolExecutor(
 
         const actionsLog: string[] = []
         let finalText = ''
+
+        const displayTurns: SubagentTurn[] = [
+            { role: 'user', text: userContent },
+        ]
+        const emitState = (status: 'running' | 'done' | 'error') => {
+            if (toolCallId) {
+                updateSubagent(toolCallId, {
+                    turns: displayTurns,
+                    status,
+                })
+            }
+        }
+        emitState('running')
 
         for (let step = 0; step < MAX_AGENT_STEPS; step++) {
             const res = await fetch('/api/subagent', {
@@ -515,6 +710,7 @@ export function createToolExecutor(
                 const err = (await res.json().catch(() => ({}))) as {
                     error?: string
                 }
+                emitState('error')
                 throw new Error(
                     err.error ?? `Subagent request failed (${res.status})`
                 )
@@ -542,23 +738,46 @@ export function createToolExecutor(
                 messages.push({ role: 'assistant', content: assistantContent })
             }
 
+            const displayToolCalls: SubagentToolCall[] = data.toolCalls.map(
+                (tc) => ({
+                    name: tc.toolName,
+                    args: (tc.args as Record<string, unknown>) ?? {},
+                    status: 'pending' as const,
+                })
+            )
+            const assistantTurn: SubagentTurn = {
+                role: 'assistant',
+                text: data.text || '',
+                toolCalls:
+                    displayToolCalls.length > 0 ? displayToolCalls : undefined,
+            }
+            displayTurns.push(assistantTurn)
+            emitState('running')
+
             if (data.toolCalls.length === 0) break
 
             const toolResults: Extract<
                 SubagentMessage,
                 { role: 'tool' }
             >['content'] = []
-            for (const tc of data.toolCalls) {
+            for (let i = 0; i < data.toolCalls.length; i++) {
+                const tc = data.toolCalls[i]
                 let result: string
                 try {
                     result = await executeTool(tc.toolName, tc.args)
                     actionsLog.push(`${tc.toolName}: ${result}`)
+                    displayToolCalls[i].status = 'done'
+                    displayToolCalls[i].result = result
                 } catch (err) {
                     result = `Error: ${
                         err instanceof Error ? err.message : String(err)
                     }`
                     actionsLog.push(`${tc.toolName} FAILED: ${result}`)
+                    displayToolCalls[i].status = 'error'
+                    displayToolCalls[i].error =
+                        err instanceof Error ? err.message : String(err)
                 }
+                emitState('running')
                 toolResults.push({
                     type: 'tool-result',
                     toolCallId: tc.toolCallId,
@@ -571,6 +790,8 @@ export function createToolExecutor(
             if (data.finishReason === 'stop') break
         }
 
+        emitState('done')
+
         const lines: string[] = []
         if (finalText) lines.push(finalText)
         if (actionsLog.length > 0) {
@@ -582,7 +803,8 @@ export function createToolExecutor(
 
     const executeTool = async (
         toolName: string,
-        input: unknown
+        input: unknown,
+        toolCallId?: string
     ): Promise<string> => {
         switch (toolName) {
             case 'create_script':
@@ -659,7 +881,8 @@ export function createToolExecutor(
                         agentType: 'scene' | 'script'
                         task: string
                         context?: string
-                    }
+                    },
+                    toolCallId
                 )
             default:
                 throw new Error(`Unknown tool: ${toolName}`)

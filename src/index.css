@@ -37,33 +37,19 @@
     }
 }
 
-/* AI panel thin scrollbar */
-.ai-scrollbar::-webkit-scrollbar {
-    width: 4px;
+/* Global scrollbar */
+*::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
 }
-.ai-scrollbar::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
     background: transparent;
 }
-.ai-scrollbar::-webkit-scrollbar-thumb {
-    background: var(--color-gray-700);
-    border-radius: 2px;
-}
-.ai-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: var(--color-gray-600);
-}
-
-/* Dark panel scrollbar (Properties, Scene, etc.) */
-.panel-scrollbar::-webkit-scrollbar {
-    width: 6px;
-}
-.panel-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-}
-.panel-scrollbar::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
     background: var(--color-gray-600);
     border-radius: 3px;
 }
-.panel-scrollbar::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
     background: var(--color-gray-500);
 }
 

@@ -197,7 +197,7 @@ export function EditorLayout(props: Readonly<EditorLayoutProps>) {
                         <Resizable.Panel
                             initialSize={0.5}
                             minSize={0.05}
-                            class="bg-gray-800 p-2 rounded-md size-full overflow-y-auto panel-scrollbar"
+                            class="bg-gray-800 p-2 rounded-md size-full overflow-y-auto"
                         >
                             <ScenePanel
                                 scene={scene}
@@ -213,7 +213,7 @@ export function EditorLayout(props: Readonly<EditorLayoutProps>) {
                         <Resizable.Panel
                             initialSize={0.5}
                             minSize={0.05}
-                            class="bg-gray-800 p-2 rounded-md overflow-y-auto panel-scrollbar"
+                            class="bg-gray-800 p-2 rounded-md overflow-y-auto"
                         >
                             <PropertiesPanel
                                 node={() => {
