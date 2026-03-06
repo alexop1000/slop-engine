@@ -518,7 +518,7 @@ export const getConsoleLogsTool = {
 
 export const bulkSceneTool = {
     description:
-        'Execute multiple scene operations in one call. Use this for complex scene construction (building a house, landscape, etc). Operations run sequentially so later ones can reference nodes created by earlier ones. ALWAYS give explicit names to nodes you will reference later. Supported actions: add_mesh, add_light, update_node, delete_node, create_group, set_parent. Each operation uses the same parameters as the corresponding individual tool, plus an "action" field.',
+        'Execute multiple scene operations in one call. Use this for complex scene construction (building a house, landscape, etc). Operations run sequentially so later ones can reference nodes created by earlier ones. ALWAYS give explicit names to nodes you will reference later. Supported actions: add_mesh, add_light, update_node, delete_node, create_group, set_parent. REQUIRED params per action: add_mesh→type; add_light→type; update_node/delete_node/create_group→name; set_parent→node,parent. Never omit these.',
     inputSchema: jsonSchema<{
         operations: Array<{ action: string; [key: string]: unknown }>
     }>({
@@ -539,24 +539,42 @@ export const bulkSceneTool = {
                                 'create_group',
                                 'set_parent',
                             ],
-                            description: 'The operation type.',
+                            description:
+                                'The operation type. Each action also requires its params: add_mesh needs type; add_light needs type; update_node/delete_node/create_group need name; set_parent needs node and parent.',
                         },
                     },
                     required: ['action'],
+                    additionalProperties: true,
                 },
                 description:
-                    'Array of operations. Each has "action" plus that action\'s parameters (e.g. add_mesh operations take type, name, position, size, color, rotationDegrees, etc).',
+                    'Array of operations. Each has "action" plus that action\'s parameters. add_mesh: type (required), name, position, size, color, rotationDegrees. set_parent: node, parent (both required).',
             },
         },
         required: ['operations'],
     }),
 }
 
+export const lookupScriptingApiTool = {
+    description:
+        'Look up detailed API documentation from the full scripting reference. Use when you need specifics: method signatures, parameter types, examples, or options. Topics: Script, GUI, Input, Vector3, spawn, raycast, createButton, createLabel, PhysicsBody, CollisionEvent, SpawnOptions, etc.',
+    inputSchema: jsonSchema<{ topic: string }>({
+        type: 'object',
+        properties: {
+            topic: {
+                type: 'string',
+                description:
+                    'The API topic to look up (e.g. "GUI", "spawn", "createButton", "Vector3", "raycast").',
+            },
+        },
+        required: ['topic'],
+    }),
+}
+
 export const spawnAgentTool = {
     description:
-        'Spawn a specialist subagent. Use agentType "scene" for 3D world building (meshes, lights, layout, assets) and "script" for TypeScript gameplay scripting (writing/editing scripts, attaching them, debugging via simulation). Provide a clear self-contained task and any relevant context.',
+        'Spawn a specialist subagent. Use agentType "scene" for 3D world building (meshes, lights, layout, assets), "script" for TypeScript gameplay scripting (writing/editing scripts, attaching them, debugging via simulation), and "ui" for in-game UI (buttons, labels, HUDs via this.gui). Provide a clear self-contained task and any relevant context.',
     inputSchema: jsonSchema<{
-        agentType: 'scene' | 'script'
+        agentType: 'scene' | 'script' | 'ui'
         task: string
         context?: string
     }>({
@@ -564,9 +582,9 @@ export const spawnAgentTool = {
         properties: {
             agentType: {
                 type: 'string',
-                enum: ['scene', 'script'],
+                enum: ['scene', 'script', 'ui'],
                 description:
-                    '"scene" for 3D world construction (meshes, lights, hierarchy, assets). "script" for TypeScript gameplay scripting, logic, and debugging.',
+                    '"scene" for 3D world construction (meshes, lights, hierarchy, assets). "script" for TypeScript gameplay scripting, logic, and debugging. "ui" for in-game UI (buttons, labels, HUDs via scripts).',
             },
             task: {
                 type: 'string',

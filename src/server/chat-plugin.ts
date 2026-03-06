@@ -10,6 +10,7 @@ import type { ReadableStream as WebReadableStream } from 'node:stream/web'
 import {
     buildSceneAgentSystemPrompt,
     buildScriptAgentSystemPrompt,
+    buildUIAgentSystemPrompt,
     buildCoordinatorSystemPrompt,
 } from './prompts'
 import {
@@ -36,8 +37,10 @@ import {
     listAssetsTool,
     importAssetTool,
     savePrefabTool,
+    lookupScriptingApiTool,
 } from './tools'
 import { typeCheckScript } from './script-typecheck'
+import { createLookupHandler } from './api-lookup'
 
 // Minimal CoreMessage-compatible type for the subagent endpoint
 type SubagentMessage = {
@@ -64,6 +67,40 @@ export function chatApiPlugin(): Plugin {
                 resolve(server.config.root, 'src/scripting/api.d.ts'),
                 'utf-8'
             )
+            const lookupApi = createLookupHandler(server.config.root)
+
+            server.middlewares.use('/api/lookup-scripting-api', async (req, res) => {
+                if (req.method !== 'POST') {
+                    res.statusCode = 405
+                    res.end('Method Not Allowed')
+                    return
+                }
+                try {
+                    const body = await new Promise<string>((resolve) => {
+                        let data = ''
+                        req.on('data', (chunk: Buffer) => {
+                            data += chunk.toString()
+                        })
+                        req.on('end', () => resolve(data))
+                    })
+                    const { topic } = JSON.parse(body) as { topic: string }
+                    const result = lookupApi(typeof topic === 'string' ? topic : '')
+                    res.setHeader('Content-Type', 'application/json')
+                    res.end(JSON.stringify({ content: result }))
+                } catch (error) {
+                    console.error('[lookup-scripting-api]', error)
+                    res.statusCode = 500
+                    res.setHeader('Content-Type', 'application/json')
+                    res.end(
+                        JSON.stringify({
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : 'Lookup failed',
+                        })
+                    )
+                }
+            })
 
             server.middlewares.use('/api/typecheck', async (req, res) => {
                 if (req.method !== 'POST') {
@@ -192,18 +229,22 @@ export function chatApiPlugin(): Plugin {
 
                     const { messages, agentType } = JSON.parse(body) as {
                         messages: SubagentMessage[]
-                        agentType: 'scene' | 'script'
+                        agentType: 'scene' | 'script' | 'ui'
                     }
 
-                    const isScriptAgent = agentType === 'script'
+                    const isScriptingAgent = agentType === 'script' || agentType === 'ui'
 
-                    const system = isScriptAgent
-                        ? buildScriptAgentSystemPrompt(server.config.root)
-                        : buildSceneAgentSystemPrompt()
+                    const system =
+                        agentType === 'script'
+                            ? buildScriptAgentSystemPrompt(server.config.root)
+                            : agentType === 'ui'
+                              ? buildUIAgentSystemPrompt(server.config.root)
+                              : buildSceneAgentSystemPrompt()
 
-                    const tools = isScriptAgent
+                    const tools = isScriptingAgent
                         ? {
                               get_scene: getSceneTool,
+                              lookup_scripting_api: lookupScriptingApiTool,
                               list_scripts: listScriptsTool,
                               create_script: createScriptTool,
                               read_script: readScriptTool,

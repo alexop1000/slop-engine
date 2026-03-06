@@ -83,11 +83,12 @@ function sanitizeBulkOperations(
         delete sanitized.checkCollisions
 
         if (action === 'add_mesh') {
-            let meshType = String(
-                sanitized.type && typeof sanitized.type === 'string'
-                    ? sanitized.type
-                    : 'box'
-            ).toLowerCase()
+            const rawType = sanitized.type
+            if (!rawType || typeof rawType !== 'string' || !rawType.trim()) {
+                ops.push(sanitized as BulkOperation)
+                continue
+            }
+            let meshType = String(rawType).toLowerCase()
             if (meshType === 'capsule') meshType = 'cylinder'
             if (
                 !VALID_MESH_TYPES.includes(
@@ -144,8 +145,10 @@ function sanitizeBulkOperations(
                 delete sanitized.intensity
             }
         } else if (action === 'update_node') {
-            if (typeof sanitized.name !== 'string' || !sanitized.name.trim())
+            if (typeof sanitized.name !== 'string' || !sanitized.name.trim()) {
+                ops.push(sanitized as BulkOperation)
                 continue
+            }
             const pos = ensureNumberArray(sanitized.position, 3)
             if (pos) sanitized.position = pos
             const scale = ensureNumberArray(sanitized.scale, 3)
@@ -163,21 +166,28 @@ function sanitizeBulkOperations(
                 delete sanitized.intensity
             }
         } else if (action === 'delete_node') {
-            if (typeof sanitized.name !== 'string' || !sanitized.name.trim())
+            if (typeof sanitized.name !== 'string' || !sanitized.name.trim()) {
+                ops.push(sanitized as BulkOperation)
                 continue
+            }
         } else if (action === 'create_group') {
-            if (typeof sanitized.name !== 'string' || !sanitized.name.trim())
+            if (typeof sanitized.name !== 'string' || !sanitized.name.trim()) {
+                ops.push(sanitized as BulkOperation)
                 continue
+            }
             const pos = ensureNumberArray(sanitized.position, 3)
             if (pos) sanitized.position = pos
         } else if (action === 'set_parent') {
-            if (typeof sanitized.node !== 'string' || !sanitized.node.trim())
+            if (typeof sanitized.node !== 'string' || !sanitized.node.trim()) {
+                ops.push(sanitized as BulkOperation)
                 continue
+            }
             const parentVal = sanitized.parent
             if (
                 parentVal !== null &&
                 (typeof parentVal !== 'string' || !parentVal.trim())
             ) {
+                ops.push(sanitized as BulkOperation)
                 continue
             }
         }
@@ -667,9 +677,25 @@ export function createToolExecutor(
         return JSON.stringify(formatted, null, 2)
     }
 
+    const executeLookupScriptingApi = async (args: {
+        topic: string
+    }): Promise<string> => {
+        const res = await fetch('/api/lookup-scripting-api', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic: args.topic ?? '' }),
+        })
+        if (!res.ok) {
+            const err = (await res.json().catch(() => ({}))) as { error?: string }
+            throw new Error(err.error ?? `Lookup failed (${res.status})`)
+        }
+        const { content } = (await res.json()) as { content: string }
+        return content
+    }
+
     const executeSpawnAgent = async (
         args: {
-            agentType: 'scene' | 'script'
+            agentType: 'scene' | 'script' | 'ui'
             task: string
             context?: string
         },
@@ -875,10 +901,14 @@ export function createToolExecutor(
                 return executeSleep(input as { seconds: number })
             case 'get_console_logs':
                 return executeGetConsoleLogs()
+            case 'lookup_scripting_api':
+                return executeLookupScriptingApi(
+                    input as { topic: string }
+                )
             case 'spawn_agent':
                 return executeSpawnAgent(
                     input as {
-                        agentType: 'scene' | 'script'
+                        agentType: 'scene' | 'script' | 'ui'
                         task: string
                         context?: string
                     },

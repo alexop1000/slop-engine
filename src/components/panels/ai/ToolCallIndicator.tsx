@@ -151,8 +151,10 @@ function toolLabel(
                 agentType === 'script'
                     ? 'Script Writer'
                     : agentType === 'scene'
-                    ? 'Scene Builder'
-                    : 'Agent'
+                      ? 'Scene Builder'
+                      : agentType === 'ui'
+                        ? 'UI Builder'
+                        : 'Agent'
             const short = task
                 ? task.length > 50
                     ? task.slice(0, 47) + '...'
