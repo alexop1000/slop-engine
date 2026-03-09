@@ -18,6 +18,16 @@ import { RuntimeWorld } from './RuntimeWorld'
 import { getBlob } from '../assetStore'
 import { pushLog } from './consoleStore'
 
+function formatError(err: unknown, scriptPath?: string): string {
+    if (!(err instanceof Error) || !err.stack) return String(err)
+    if (!scriptPath) return err.stack
+    const lines = err.stack.split('\n')
+    const header = lines[0]
+    const frames = lines.slice(1).filter((line) => line.includes(scriptPath))
+    if (frames.length === 0) return header
+    return header + '\n' + frames.join('\n')
+}
+
 /** Metadata shape we expect on nodes that have scripts attached. */
 interface ScriptMetadata {
     scripts?: string[]
@@ -86,16 +96,22 @@ if (!(AbstractMesh.prototype as any).getBoundingSize) {
  *
  * The compiled code runs inside a `new Function()` with a controlled
  * set of globals — only the symbols we explicitly pass in are available.
+ * @param tsSource - Raw TypeScript source
+ * @param filePath - Path used for stack traces (e.g. "scripts/MyScript.ts")
  */
-function compileScript(tsSource: string): new () => Script {
+function compileScript(
+    tsSource: string,
+    filePath: string
+): new () => Script {
     // Transpile TS → JS (CJS so we can extract exports.default)
     const { code: jsCode } = transform(tsSource, {
         transforms: ['typescript', 'imports'],
-        filePath: 'script.ts',
+        filePath,
     })
 
     // Wrap in a function that provides a controlled scope.
     // The compiled CJS code writes to `exports.default`.
+    // sourceURL makes stack traces show the script path instead of <anonymous>.
     const wrapper = new Function(
         'Script',
         'MeshScript',
@@ -113,6 +129,7 @@ function compileScript(tsSource: string): new () => Script {
         var exports = module.exports;
         ${jsCode}
         return module.exports.default || module.exports;
+        //# sourceURL=${filePath}
         `
     )
 
@@ -250,7 +267,7 @@ export class ScriptRuntime {
                     }
 
                     const source = await blob.text()
-                    const ScriptClass = compileScript(source)
+                    const ScriptClass = compileScript(source, path)
 
                     // Validate node type constraint
                     const requiredType = ScriptClass.nodeType
@@ -281,7 +298,7 @@ export class ScriptRuntime {
                     pushLog(
                         'error',
                         `Failed to compile script "${path}":`,
-                        String(err)
+                        formatError(err, path)
                     )
                 }
             }
@@ -292,7 +309,7 @@ export class ScriptRuntime {
             try {
                 instance.start()
             } catch (err) {
-                pushLog('error', `Error in start() of "${path}":`, String(err))
+                pushLog('error', `Error in start() of "${path}":`, formatError(err, path))
             }
         }
 
@@ -340,7 +357,7 @@ export class ScriptRuntime {
             try {
                 instance.update()
             } catch (err) {
-                pushLog('error', `Error in update() of "${path}":`, String(err))
+                pushLog('error', `Error in update() of "${path}":`, formatError(err, path))
             }
         }
     }
@@ -354,7 +371,7 @@ export class ScriptRuntime {
                 pushLog(
                     'error',
                     `Error in destroy() of "${path}":`,
-                    String(err)
+                    formatError(err, path)
                 )
             }
         }

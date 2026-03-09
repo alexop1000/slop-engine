@@ -185,14 +185,25 @@ function snapshotNode(node: Node): NodeSnapshot {
         snap.visibility = Math.round(node.visibility * 1000) / 1000
         snap.checkCollisions = node.checkCollisions
         snap.receiveShadows = node.receiveShadows
-        const meta = node.metadata as { size?: Record<string, number> } | undefined
+        const meta = node.metadata as
+            | { size?: Record<string, number> }
+            | undefined
         if (meta?.size && Object.keys(meta.size).length > 0) {
             snap.size = meta.size
         }
-        if (meta && typeof (meta as Record<string, unknown>).physicsEnabled === 'boolean') {
-            snap.physicsEnabled = (meta as { physicsEnabled: boolean }).physicsEnabled
+        if (
+            meta &&
+            typeof (meta as Record<string, unknown>).physicsEnabled ===
+                'boolean'
+        ) {
+            snap.physicsEnabled = (
+                meta as { physicsEnabled: boolean }
+            ).physicsEnabled
         }
-        if (meta && typeof (meta as Record<string, unknown>).physicsMass === 'number') {
+        if (
+            meta &&
+            typeof (meta as Record<string, unknown>).physicsMass === 'number'
+        ) {
             snap.physicsMass = (meta as { physicsMass: number }).physicsMass
         }
         if (
@@ -394,6 +405,24 @@ export function instantiatePrefabInScene(scene: Scene, json: string): Node {
         throw new Error('Invalid prefab file')
     }
     return instantiateFromSnapshot(scene, parsed.root, null)
+}
+
+// ── Add node / transform node ───────────────────────────────────────
+
+export function addTransformNodeToScene(
+    scene: Scene,
+    options: { name?: string } = {}
+): TransformNode {
+    const name = options.name ?? nextName('TransformNode')
+    return new TransformNode(name, scene)
+}
+
+export function addEmptyNodeToScene(
+    scene: Scene,
+    options: { name?: string } = {}
+): Node {
+    const name = options.name ?? nextName('Node')
+    return new Node(name, scene)
 }
 
 // ── Add mesh ─────────────────────────────────────────────────────────
@@ -746,45 +775,78 @@ export function executeBulkOperations(
             let message: string
             switch (op.action) {
                 case 'add_mesh': {
-                    if (!op.type || typeof op.type !== 'string' || !op.type.trim())
-                        throw new Error('add_mesh requires type (box, sphere, cylinder, cone, torus, pyramid, plane, ground)')
+                    if (
+                        !op.type ||
+                        typeof op.type !== 'string' ||
+                        !op.type.trim()
+                    )
+                        throw new Error(
+                            'add_mesh requires type (box, sphere, cylinder, cone, torus, pyramid, plane, ground)'
+                        )
                     const mesh = addMeshToScene(scene, op)
                     message = `Created ${op.type} "${mesh.name}"`
                     break
                 }
                 case 'add_light': {
-                    if (!op.type || typeof op.type !== 'string' || !op.type.trim())
-                        throw new Error('add_light requires type (point, directional, spot, hemispheric)')
+                    if (
+                        !op.type ||
+                        typeof op.type !== 'string' ||
+                        !op.type.trim()
+                    )
+                        throw new Error(
+                            'add_light requires type (point, directional, spot, hemispheric)'
+                        )
                     const light = addLightToScene(scene, op)
                     message = `Created ${op.type} light "${light.name}"`
                     break
                 }
                 case 'update_node': {
-                    if (!op.name || typeof op.name !== 'string' || !op.name.trim())
+                    if (
+                        !op.name ||
+                        typeof op.name !== 'string' ||
+                        !op.name.trim()
+                    )
                         throw new Error('update_node requires name')
                     updateNodeInScene(scene, op)
                     message = `Updated "${op.name}"`
                     break
                 }
                 case 'delete_node': {
-                    if (!op.name || typeof op.name !== 'string' || !op.name.trim())
+                    if (
+                        !op.name ||
+                        typeof op.name !== 'string' ||
+                        !op.name.trim()
+                    )
                         throw new Error('delete_node requires name')
                     deleteNodeFromScene(scene, op.name)
                     message = `Deleted "${op.name}"`
                     break
                 }
                 case 'create_group': {
-                    if (!op.name || typeof op.name !== 'string' || !op.name.trim())
+                    if (
+                        !op.name ||
+                        typeof op.name !== 'string' ||
+                        !op.name.trim()
+                    )
                         throw new Error('create_group requires name')
                     const group = createGroupInScene(scene, op)
                     message = `Created group "${group.name}"`
                     break
                 }
                 case 'set_parent': {
-                    if (!op.node || typeof op.node !== 'string' || !op.node.trim())
+                    if (
+                        !op.node ||
+                        typeof op.node !== 'string' ||
+                        !op.node.trim()
+                    )
                         throw new Error('set_parent requires node')
-                    if (op.parent !== null && (typeof op.parent !== 'string' || !op.parent.trim()))
-                        throw new Error('set_parent requires parent (node name or null to unparent)')
+                    if (
+                        op.parent !== null &&
+                        (typeof op.parent !== 'string' || !op.parent.trim())
+                    )
+                        throw new Error(
+                            'set_parent requires parent (node name or null to unparent)'
+                        )
                     setParentInScene(scene, op.node, op.parent)
                     message = op.parent
                         ? `Parented "${op.node}" under "${op.parent}"`

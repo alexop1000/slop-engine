@@ -22,6 +22,10 @@ import {
     titleFromMessages,
 } from '../../chatHistoryStore'
 import {
+    fixErrorRequest,
+    clearFixErrorRequest,
+} from '../../aiRequestStore'
+import {
     isToolPart,
     getToolNameFromPart,
     type ToolUIPart,
@@ -256,6 +260,18 @@ export default function AIPanel(
                 el.scrollTop = el.scrollHeight
             })
         }
+    })
+
+    createEffect(() => {
+        const err = fixErrorRequest()
+        if (!err) return
+        clearFixErrorRequest()
+        setShowHistory(false)
+        startNewChat().then(() => {
+            chat.sendMessage({
+                text: `Fix this error:\n\n${err}`,
+            })
+        })
     })
 
     createEffect(() => {

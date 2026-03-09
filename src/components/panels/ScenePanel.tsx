@@ -14,6 +14,8 @@ import {
 import {
     addMeshToScene,
     addLightToScene,
+    addTransformNodeToScene,
+    addEmptyNodeToScene,
     nextName,
     serializeNodeAsPrefab,
 } from '../../scene/SceneOperations'
@@ -134,6 +136,24 @@ export default function ScenePanel(
         setShowAddMenu(false)
     }
 
+    function addTransformNode() {
+        const scene = props.scene()
+        if (!scene) return
+        const node = addTransformNodeToScene(scene)
+        props.setSelectedNode(node)
+        props.setNodeTick((t) => t + 1)
+        setShowAddMenu(false)
+    }
+
+    function addEmptyNode() {
+        const scene = props.scene()
+        if (!scene) return
+        const node = addEmptyNodeToScene(scene)
+        props.setSelectedNode(node)
+        props.setNodeTick((t) => t + 1)
+        setShowAddMenu(false)
+    }
+
     function deleteNode(node: Node) {
         const scene = props.scene()
         if (!scene || node === scene.activeCamera) return
@@ -210,6 +230,10 @@ export default function ScenePanel(
 
     function getContextMenuItems(node: Node | undefined): ContextMenuItem[] {
         const addChildren: ContextMenuItem[] = [
+            { id: 'add-header-nodes', label: 'Nodes', disabled: true },
+            { id: 'add-transformnode', label: 'Transform Node' },
+            { id: 'add-emptynode', label: 'Empty Node' },
+            { id: 'add-sep-nodes', label: '', separator: true },
             { id: 'add-header-meshes', label: 'Meshes', disabled: true },
             { id: 'add-box', label: 'Box' },
             { id: 'add-sphere', label: 'Sphere' },
@@ -260,7 +284,9 @@ export default function ScenePanel(
                 'ground',
             ]
             const lightTypes = ['point', 'directional', 'spot', 'hemispheric']
-            if (meshTypes.includes(type)) addMesh(type)
+            if (type === 'transformnode') addTransformNode()
+            else if (type === 'emptynode') addEmptyNode()
+            else if (meshTypes.includes(type)) addMesh(type)
             else if (lightTypes.includes(type)) addLight(type)
         } else if (id === 'delete' && ctx.node) {
             deleteNode(ctx.node)
@@ -412,6 +438,24 @@ export default function ScenePanel(
                             onClick={() => setShowAddMenu(false)}
                         />
                         <div class="absolute right-0 top-full mt-1 w-44 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-50 py-1">
+                            <div class="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                Nodes
+                            </div>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addTransformNode()}
+                            >
+                                Transform Node
+                            </button>
+                            <button
+                                type="button"
+                                class="w-full text-left px-3 py-1 text-sm text-gray-300 hover:bg-gray-700"
+                                onClick={() => addEmptyNode()}
+                            >
+                                Empty Node
+                            </button>
+                            <div class="border-t border-gray-700 my-1" />
                             <div class="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                                 Meshes
                             </div>
