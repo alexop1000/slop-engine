@@ -41,6 +41,9 @@ interface MaterialSnapshot {
     roughness: number
     wireframe: boolean
     backFaceCulling: boolean
+    textureTiling?: [number, number]
+    textureOffset?: [number, number]
+    textureRotation?: number
 }
 
 interface MeshSnapshot {
@@ -112,12 +115,53 @@ const PHYSICS_KEYS = [
     'impostor',
 ]
 
+const TEXTURE_KEYS = new Set([
+    'diffuseTexture',
+    'ambientTexture',
+    'opacityTexture',
+    'reflectionTexture',
+    'emissiveTexture',
+    'specularTexture',
+    'bumpTexture',
+    'lightmapTexture',
+    'refractionTexture',
+    'albedoTexture',
+    'metallicTexture',
+    'reflectivityTexture',
+    'microSurfaceTexture',
+    'metallicReflectanceTexture',
+    'reflectanceTexture',
+])
+
+function hasTransientTextureSource(value: Record<string, unknown>): boolean {
+    const candidates = [value.name, value.url]
+    return candidates.some(
+        (candidate) =>
+            typeof candidate === 'string' &&
+            (candidate.startsWith('blob:') || candidate.startsWith('data:'))
+    )
+}
+
+function shouldStripSerializedEntry(key: string, value: unknown): boolean {
+    if (PHYSICS_KEYS.includes(key)) return true
+    if (key === 'base64String' || key === 'base64Type') return true
+    if (!TEXTURE_KEYS.has(key)) return false
+    if (value == null || typeof value !== 'object') return false
+
+    const record = value as Record<string, unknown>
+    return (
+        'base64String' in record ||
+        'base64Type' in record ||
+        hasTransientTextureSource(record)
+    )
+}
+
 function stripPhysicsFromSerialized(obj: unknown): unknown {
     if (obj === null || typeof obj !== 'object') return obj
     if (Array.isArray(obj)) return obj.map(stripPhysicsFromSerialized)
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(obj)) {
-        if (PHYSICS_KEYS.includes(k)) continue
+        if (shouldStripSerializedEntry(k, v)) continue
         out[k] = stripPhysicsFromSerialized(v)
     }
     return out
@@ -179,6 +223,45 @@ export async function loadSceneFromJson(
     }
 }
 
+function readTexturePair(value: unknown): [number, number] | undefined {
+    if (
+        Array.isArray(value) &&
+        value.length >= 2 &&
+        typeof value[0] === 'number' &&
+        !Number.isNaN(value[0]) &&
+        typeof value[1] === 'number' &&
+        !Number.isNaN(value[1])
+    ) {
+        return [value[0], value[1]]
+    }
+
+    return undefined
+}
+
+function applyTextureTransformFromMetadata(
+    texture: Texture,
+    metadata: Record<string, unknown>
+): void {
+    const tiling = readTexturePair(metadata.textureTiling)
+    if (tiling) {
+        texture.uScale = tiling[0]
+        texture.vScale = tiling[1]
+    }
+
+    const offset = readTexturePair(metadata.textureOffset)
+    if (offset) {
+        texture.uOffset = offset[0]
+        texture.vOffset = offset[1]
+    }
+
+    if (
+        typeof metadata.textureRotation === 'number' &&
+        !Number.isNaN(metadata.textureRotation)
+    ) {
+        texture.wAng = (metadata.textureRotation * Math.PI) / 180
+    }
+}
+
 /**
  * After loading a scene from JSON, re-apply diffuse textures from the asset
  * store. Serialised blob URLs are temporary and become invalid on page reload,
@@ -196,6 +279,9 @@ export async function rehydrateTextures(scene: Scene): Promise<void> {
         if (mat.diffuseTexture) mat.diffuseTexture.dispose()
         const url = URL.createObjectURL(blob)
         mat.diffuseTexture = new Texture(url, scene)
+        if (meta && mat.diffuseTexture instanceof Texture) {
+            applyTextureTransformFromMetadata(mat.diffuseTexture, meta)
+        }
     }
 }
 
@@ -345,6 +431,7 @@ export function captureSceneSnapshot(scene: Scene): SceneSnapshot {
     // Snapshot all materials
     for (const mat of scene.materials) {
         if (mat instanceof StandardMaterial) {
+            const texture = mat.diffuseTexture
             materials.set(mat.name, {
                 name: mat.name,
                 diffuseColor: snapColor(mat.diffuseColor),
@@ -356,6 +443,18 @@ export function captureSceneSnapshot(scene: Scene): SceneSnapshot {
                 roughness: mat.roughness,
                 wireframe: mat.wireframe,
                 backFaceCulling: mat.backFaceCulling,
+                textureTiling:
+                    texture instanceof Texture
+                        ? [texture.uScale, texture.vScale]
+                        : undefined,
+                textureOffset:
+                    texture instanceof Texture
+                        ? [texture.uOffset, texture.vOffset]
+                        : undefined,
+                textureRotation:
+                    texture instanceof Texture
+                        ? (texture.wAng * 180) / Math.PI
+                        : undefined,
             })
         }
     }
@@ -446,6 +545,21 @@ function restoreMaterials(scene: Scene, snapshot: SceneSnapshot): void {
         mat.roughness = snap.roughness
         mat.wireframe = snap.wireframe
         mat.backFaceCulling = snap.backFaceCulling
+
+        if (mat.diffuseTexture instanceof Texture) {
+            if (snap.textureTiling) {
+                mat.diffuseTexture.uScale = snap.textureTiling[0]
+                mat.diffuseTexture.vScale = snap.textureTiling[1]
+            }
+            if (snap.textureOffset) {
+                mat.diffuseTexture.uOffset = snap.textureOffset[0]
+                mat.diffuseTexture.vOffset = snap.textureOffset[1]
+            }
+            if (typeof snap.textureRotation === 'number') {
+                mat.diffuseTexture.wAng =
+                    (snap.textureRotation * Math.PI) / 180
+            }
+        }
     }
 }
 

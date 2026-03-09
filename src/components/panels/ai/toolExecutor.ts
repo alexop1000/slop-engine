@@ -584,6 +584,15 @@ export function createToolExecutor(
         }
     }
 
+    function persistTextureTransformMetadata(
+        metadata: Record<string, unknown>,
+        tex: Texture
+    ): void {
+        metadata.textureTiling = [tex.uScale, tex.vScale]
+        metadata.textureOffset = [tex.uOffset, tex.vOffset]
+        metadata.textureRotation = (tex.wAng * 180) / Math.PI
+    }
+
     const executeApplyTexture = async (args: {
         mesh: string
         texturePath: string
@@ -623,6 +632,7 @@ export function createToolExecutor(
         if (!mesh.metadata) mesh.metadata = {}
         const meshMeta = mesh.metadata as Record<string, unknown>
         meshMeta.diffuseTexturePath = args.texturePath
+        persistTextureTransformMetadata(meshMeta, tex)
 
         ctx.setNodeTick((t) => t + 1)
         return `Applied texture "${args.texturePath}" to "${args.mesh}"`
@@ -650,13 +660,19 @@ export function createToolExecutor(
             throw new Error(`Mesh "${args.mesh}" has no StandardMaterial`)
 
         const tex = mat.diffuseTexture
-        if (tex instanceof Texture)
+        if (tex instanceof Texture) {
             applyTextureTransform(
                 tex,
                 args.textureTiling,
                 args.textureOffset,
                 args.textureRotation
             )
+            if (!mesh.metadata) mesh.metadata = {}
+            persistTextureTransformMetadata(
+                mesh.metadata as Record<string, unknown>,
+                tex
+            )
+        }
 
         if (typeof args.roughness === 'number' && !Number.isNaN(args.roughness))
             mat.roughness = args.roughness
@@ -697,7 +713,11 @@ export function createToolExecutor(
             textureBlobUrls.delete(args.mesh)
         }
         if (mesh.metadata) {
-            delete (mesh.metadata as Record<string, unknown>).diffuseTexturePath
+            const metadata = mesh.metadata as Record<string, unknown>
+            delete metadata.diffuseTexturePath
+            delete metadata.textureTiling
+            delete metadata.textureOffset
+            delete metadata.textureRotation
         }
         ctx.setNodeTick((t) => t + 1)
         return `Removed texture from "${args.mesh}"`

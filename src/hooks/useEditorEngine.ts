@@ -55,9 +55,14 @@ export function useEditorEngine(state: EditorState) {
     let _scriptRuntime: ScriptRuntime | null = null
 
     function performSave(s: Scene) {
-        setSceneJson(serializeScene(s))
-        setLastSaved(new Date())
-        setIsDirty(false)
+        try {
+            setSceneJson(serializeScene(s))
+            setLastSaved(new Date())
+            setIsDirty(false)
+        } catch (error) {
+            setIsDirty(true)
+            console.error('Failed to persist scene state.', error)
+        }
     }
 
     function scheduleAutoSave() {

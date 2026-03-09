@@ -17,7 +17,7 @@ export function Vector3Input(props: Vector3InputProps) {
                     <Input
                         label={axis.toUpperCase()}
                         value={props.value()?.[axis]?.toFixed(3)}
-                        onChange={(e) => {
+                        onInput={(e) => {
                             props.onChange(
                                 axis,
                                 Number.parseFloat(e.currentTarget.value)
