@@ -6,6 +6,7 @@ import {
     setBlob,
     deleteBlob,
 } from '../../../assetStore'
+import { Texture, StandardMaterial, Color3 } from 'babylonjs'
 import { openScript, openScriptFile } from '../../../scriptEditorStore'
 import { logs, type LogEntry } from '../../../scripting/consoleStore'
 import {
@@ -215,6 +216,7 @@ export interface ToolExecutorContext {
 
 const SCRIPT_EXT = ['.ts', '.tsx', '.js', '.jsx']
 const MODEL_EXT = ['.glb', '.gltf', '.obj']
+const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tga']
 const PREFAB_EXT = '.prefab.json'
 const MAX_AGENT_STEPS = 20
 
@@ -550,6 +552,208 @@ export function createToolExecutor(
         return JSON.stringify(models)
     }
 
+    const executeListImageAssets = (): string => {
+        const store = getAssetStore()
+        const allFiles = store.collectFilePaths(store.tree())
+        const images = allFiles.filter((p) =>
+            IMAGE_EXT.some((ext) => p.toLowerCase().endsWith(ext))
+        )
+        if (images.length === 0) return 'No image assets found in asset store.'
+        return JSON.stringify(images)
+    }
+
+    // Tracks blob URLs created for textures so we can revoke them when replaced
+    const textureBlobUrls = new Map<string, string>()
+
+    function applyTextureTransform(
+        tex: Texture,
+        tiling?: [number, number],
+        offset?: [number, number],
+        rotationDeg?: number
+    ): void {
+        if (tiling && tiling.length >= 2) {
+            tex.uScale = tiling[0]
+            tex.vScale = tiling[1]
+        }
+        if (offset && offset.length >= 2) {
+            tex.uOffset = offset[0]
+            tex.vOffset = offset[1]
+        }
+        if (typeof rotationDeg === 'number' && !Number.isNaN(rotationDeg)) {
+            tex.wAng = (rotationDeg * Math.PI) / 180
+        }
+    }
+
+    const executeApplyTexture = async (args: {
+        mesh: string
+        texturePath: string
+        textureTiling?: [number, number]
+        textureOffset?: [number, number]
+        textureRotation?: number
+    }): Promise<string> => {
+        const s = ctx.scene()
+        if (!s) throw new Error('Scene not initialized')
+        const mesh = s.getMeshByName(args.mesh)
+        if (!mesh) throw new Error(`Mesh "${args.mesh}" not found`)
+        const blob = await getBlob(args.texturePath)
+        if (!blob)
+            throw new Error(`Asset "${args.texturePath}" not found in store`)
+
+        const oldUrl = textureBlobUrls.get(args.mesh)
+        if (oldUrl) URL.revokeObjectURL(oldUrl)
+
+        const url = URL.createObjectURL(blob)
+        textureBlobUrls.set(args.mesh, url)
+
+        let mat = mesh.material as StandardMaterial | null
+        if (!(mat instanceof StandardMaterial)) {
+            mat = new StandardMaterial(`${args.mesh}_mat`, s)
+            mesh.material = mat
+        }
+        if (mat.diffuseTexture) mat.diffuseTexture.dispose()
+        const tex = new Texture(url, s)
+        mat.diffuseTexture = tex
+        applyTextureTransform(
+            tex,
+            args.textureTiling,
+            args.textureOffset,
+            args.textureRotation
+        )
+
+        if (!mesh.metadata) mesh.metadata = {}
+        const meshMeta = mesh.metadata as Record<string, unknown>
+        meshMeta.diffuseTexturePath = args.texturePath
+
+        ctx.setNodeTick((t) => t + 1)
+        return `Applied texture "${args.texturePath}" to "${args.mesh}"`
+    }
+
+    const executeUpdateMaterialProperties = (args: {
+        mesh: string
+        textureTiling?: [number, number]
+        textureOffset?: [number, number]
+        textureRotation?: number
+        roughness?: number
+        specularPower?: number
+        diffuseColor?: [number, number, number]
+        specularColor?: [number, number, number]
+        emissiveColor?: [number, number, number]
+        ambientColor?: [number, number, number]
+        alpha?: number
+    }): string => {
+        const s = ctx.scene()
+        if (!s) throw new Error('Scene not initialized')
+        const mesh = s.getMeshByName(args.mesh)
+        if (!mesh) throw new Error(`Mesh "${args.mesh}" not found`)
+        const mat = mesh.material as StandardMaterial | null
+        if (!(mat instanceof StandardMaterial))
+            throw new Error(`Mesh "${args.mesh}" has no StandardMaterial`)
+
+        const tex = mat.diffuseTexture
+        if (tex instanceof Texture)
+            applyTextureTransform(
+                tex,
+                args.textureTiling,
+                args.textureOffset,
+                args.textureRotation
+            )
+
+        if (typeof args.roughness === 'number' && !Number.isNaN(args.roughness))
+            mat.roughness = args.roughness
+        if (
+            typeof args.specularPower === 'number' &&
+            !Number.isNaN(args.specularPower)
+        )
+            mat.specularPower = args.specularPower
+        if (typeof args.alpha === 'number' && !Number.isNaN(args.alpha))
+            mat.alpha = args.alpha
+
+        const dc = ensureNumberArray(args.diffuseColor, 3)
+        if (dc) mat.diffuseColor = new Color3(dc[0], dc[1], dc[2])
+        const sc = ensureNumberArray(args.specularColor, 3)
+        if (sc) mat.specularColor = new Color3(sc[0], sc[1], sc[2])
+        const ec = ensureNumberArray(args.emissiveColor, 3)
+        if (ec) mat.emissiveColor = new Color3(ec[0], ec[1], ec[2])
+        const ac = ensureNumberArray(args.ambientColor, 3)
+        if (ac) mat.ambientColor = new Color3(ac[0], ac[1], ac[2])
+
+        ctx.setNodeTick((t) => t + 1)
+        return `Updated material properties on "${args.mesh}"`
+    }
+
+    const executeRemoveTexture = (args: { mesh: string }): string => {
+        const s = ctx.scene()
+        if (!s) throw new Error('Scene not initialized')
+        const mesh = s.getMeshByName(args.mesh)
+        if (!mesh) throw new Error(`Mesh "${args.mesh}" not found`)
+        const mat = mesh.material as StandardMaterial | null
+        if (mat instanceof StandardMaterial && mat.diffuseTexture) {
+            mat.diffuseTexture.dispose()
+            mat.diffuseTexture = null
+        }
+        const oldUrl = textureBlobUrls.get(args.mesh)
+        if (oldUrl) {
+            URL.revokeObjectURL(oldUrl)
+            textureBlobUrls.delete(args.mesh)
+        }
+        if (mesh.metadata) {
+            delete (mesh.metadata as Record<string, unknown>).diffuseTexturePath
+        }
+        ctx.setNodeTick((t) => t + 1)
+        return `Removed texture from "${args.mesh}"`
+    }
+
+    const BILLBOARD_MODES: Record<string, number> = {
+        none: 0,
+        x: 1,
+        y: 2,
+        z: 4,
+        all: 7,
+    }
+
+    const executeSetBillboardMode = (args: {
+        mesh: string
+        mode: string
+    }): string => {
+        const s = ctx.scene()
+        if (!s) throw new Error('Scene not initialized')
+        const mesh = s.getMeshByName(args.mesh)
+        if (!mesh) throw new Error(`Mesh "${args.mesh}" not found`)
+        const mode = BILLBOARD_MODES[args.mode.toLowerCase()] ?? 0
+        mesh.billboardMode = mode
+        ctx.setNodeTick((t) => t + 1)
+        return `Set billboard mode of "${args.mesh}" to "${args.mode}"`
+    }
+
+    const executeDeleteAsset = async (args: {
+        path: string
+    }): Promise<string> => {
+        const store = getAssetStore()
+        const node = store.findNode(store.tree(), args.path)
+        if (!node) throw new Error(`Asset "${args.path}" not found`)
+        if (node.type === 'folder')
+            throw new Error(`Cannot delete folders with this tool`)
+        await deleteBlob(args.path)
+        store.deleteNode(args.path)
+        ctx.setNodeTick((t) => t + 1)
+        return `Deleted asset "${args.path}"`
+    }
+
+    const executeCreateAssetFolder = (args: { path: string }): string => {
+        const store = getAssetStore()
+        const segments = args.path.replace(/^\//, '').split('/').filter(Boolean)
+        if (segments.length === 0) throw new Error('Invalid folder path')
+        let parentPath = ''
+        for (const seg of segments) {
+            const fullPath = parentPath ? `${parentPath}/${seg}` : seg
+            if (!store.findNode(store.tree(), fullPath)) {
+                store.addNode(parentPath, seg, 'folder')
+            }
+            parentPath = fullPath
+        }
+        return `Created folder "${args.path}"`
+    }
+
     const executeGenerateImage = async (args: {
         prompt: string
         path: string
@@ -565,8 +769,12 @@ export function createToolExecutor(
             }),
         })
         if (!res.ok) {
-            const err = (await res.json().catch(() => ({}))) as { error?: string }
-            throw new Error(err.error ?? `Generate image failed (${res.status})`)
+            const err = (await res.json().catch(() => ({}))) as {
+                error?: string
+            }
+            throw new Error(
+                err.error ?? `Generate image failed (${res.status})`
+            )
         }
         const { path, base64, contentType } = (await res.json()) as {
             path: string
@@ -738,7 +946,9 @@ export function createToolExecutor(
             body: JSON.stringify({ topic: args.topic ?? '' }),
         })
         if (!res.ok) {
-            const err = (await res.json().catch(() => ({}))) as { error?: string }
+            const err = (await res.json().catch(() => ({}))) as {
+                error?: string
+            }
             throw new Error(err.error ?? `Lookup failed (${res.status})`)
         }
         const { content } = (await res.json()) as { content: string }
@@ -962,9 +1172,7 @@ export function createToolExecutor(
             case 'get_console_logs':
                 return executeGetConsoleLogs()
             case 'lookup_scripting_api':
-                return executeLookupScriptingApi(
-                    input as { topic: string }
-                )
+                return executeLookupScriptingApi(input as { topic: string })
             case 'spawn_agent':
                 return executeSpawnAgent(
                     input as {
@@ -974,6 +1182,54 @@ export function createToolExecutor(
                     },
                     toolCallId
                 )
+            default:
+                return executeAssetTool(toolName, input)
+        }
+    }
+
+    const executeAssetTool = (
+        toolName: string,
+        input: unknown
+    ): Promise<string> | string => {
+        switch (toolName) {
+            case 'list_image_assets':
+                return executeListImageAssets()
+            case 'apply_texture':
+                return executeApplyTexture(
+                    input as {
+                        mesh: string
+                        texturePath: string
+                        textureTiling?: [number, number]
+                        textureOffset?: [number, number]
+                        textureRotation?: number
+                    }
+                )
+            case 'update_material_properties':
+                return executeUpdateMaterialProperties(
+                    input as {
+                        mesh: string
+                        textureTiling?: [number, number]
+                        textureOffset?: [number, number]
+                        textureRotation?: number
+                        roughness?: number
+                        specularPower?: number
+                        diffuseColor?: [number, number, number]
+                        specularColor?: [number, number, number]
+                        emissiveColor?: [number, number, number]
+                        ambientColor?: [number, number, number]
+                        alpha?: number
+                    }
+                )
+            case 'remove_texture':
+                return executeRemoveTexture(input as { mesh: string })
+            case 'set_billboard_mode':
+                return executeSetBillboardMode(
+                    input as { mesh: string; mode: string }
+                )
+            case 'delete_asset':
+                return executeDeleteAsset(input as { path: string })
+            case 'create_asset_folder':
+                return executeCreateAssetFolder(input as { path: string })
             default:
                 throw new Error(`Unknown tool: ${toolName}`)
         }

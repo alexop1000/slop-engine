@@ -612,6 +612,220 @@ export const generateImageTool = {
     }),
 }
 
+export const listImageAssetsTool = {
+    description:
+        'List all image files in the asset store (.png, .jpg, .jpeg, .webp, .gif, .bmp, .tga). Use to find existing textures and sprites before generating new ones.',
+    inputSchema: jsonSchema<Record<string, never>>({
+        type: 'object',
+        properties: {},
+    }),
+}
+
+export const applyTextureTool = {
+    description:
+        'Apply an image asset from the asset store as the diffuse texture on a mesh. Use list_image_assets to find available images. Use get_scene to find mesh names. Optionally set texture tiling, offset, or rotation.',
+    inputSchema: jsonSchema<{
+        mesh: string
+        texturePath: string
+        textureTiling?: [number, number]
+        textureOffset?: [number, number]
+        textureRotation?: number
+    }>({
+        type: 'object',
+        properties: {
+            mesh: {
+                type: 'string',
+                description:
+                    'Exact name of the mesh node to apply the texture to.',
+            },
+            texturePath: {
+                type: 'string',
+                description:
+                    'Asset path of the image (e.g. "images/brick.png"). Must exist in the asset store.',
+            },
+            textureTiling: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 2,
+                maxItems: 2,
+                description:
+                    '[u, v] — repeat texture. [2, 2] tiles 2x2. Optional.',
+            },
+            textureOffset: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 2,
+                maxItems: 2,
+                description: '[u, v] — shift texture 0–1. Optional.',
+            },
+            textureRotation: {
+                type: 'number',
+                description: 'Rotate texture in degrees. Optional.',
+            },
+        },
+        required: ['mesh', 'texturePath'],
+    }),
+}
+
+export const removeTextureTool = {
+    description:
+        'Remove the diffuse texture from a mesh, reverting to its flat colour.',
+    inputSchema: jsonSchema<{ mesh: string }>({
+        type: 'object',
+        properties: {
+            mesh: {
+                type: 'string',
+                description: 'Exact name of the mesh node.',
+            },
+        },
+        required: ['mesh'],
+    }),
+}
+
+export const updateMaterialPropertiesTool = {
+    description:
+        'Update material and texture properties on a mesh. Controls how the texture looks: tiling (repeat), offset, rotation, plus material roughness, specular, colors. Use after apply_texture to fine-tune appearance. All properties are optional — only set what you need.',
+    inputSchema: jsonSchema<{
+        mesh: string
+        textureTiling?: [number, number]
+        textureOffset?: [number, number]
+        textureRotation?: number
+        roughness?: number
+        specularPower?: number
+        diffuseColor?: [number, number, number]
+        specularColor?: [number, number, number]
+        emissiveColor?: [number, number, number]
+        ambientColor?: [number, number, number]
+        alpha?: number
+    }>({
+        type: 'object',
+        properties: {
+            mesh: {
+                type: 'string',
+                description: 'Exact name of the mesh node.',
+            },
+            textureTiling: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 2,
+                maxItems: 2,
+                description:
+                    '[u, v] — how many times to repeat the texture. [2, 2] tiles 2x2. [1, 1] is default.',
+            },
+            textureOffset: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 2,
+                maxItems: 2,
+                description:
+                    '[u, v] — shift the texture. Values 0–1. Use with tiling for precise placement.',
+            },
+            textureRotation: {
+                type: 'number',
+                description:
+                    'Rotate the texture in degrees. 0 = default, 90 = quarter turn.',
+            },
+            roughness: {
+                type: 'number',
+                description:
+                    'Material roughness 0–1. Lower = shinier, higher = matte.',
+            },
+            specularPower: {
+                type: 'number',
+                description:
+                    'Specular highlight sharpness. Higher = tighter highlight.',
+            },
+            diffuseColor: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 3,
+                maxItems: 3,
+                description: '[r, g, b] 0–1. Base colour tint.',
+            },
+            specularColor: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 3,
+                maxItems: 3,
+                description: '[r, g, b] 0–1. Specular highlight colour.',
+            },
+            emissiveColor: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 3,
+                maxItems: 3,
+                description: '[r, g, b] 0–1. Glow colour.',
+            },
+            ambientColor: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 3,
+                maxItems: 3,
+                description: '[r, g, b] 0–1. Ambient lighting tint.',
+            },
+            alpha: {
+                type: 'number',
+                description: 'Opacity 0–1. 1 = fully opaque.',
+            },
+        },
+        required: ['mesh'],
+    }),
+}
+
+export const setBillboardModeTool = {
+    description:
+        'Set the billboard mode of a mesh so it always faces the camera (fully or on one axis).',
+    inputSchema: jsonSchema<{
+        mesh: string
+        mode: 'none' | 'all' | 'x' | 'y' | 'z'
+    }>({
+        type: 'object',
+        properties: {
+            mesh: {
+                type: 'string',
+                description: 'Exact name of the mesh node.',
+            },
+            mode: {
+                type: 'string',
+                enum: ['none', 'all', 'x', 'y', 'z'],
+                description:
+                    '"none" — no billboard. "all" — always face camera. "x"/"y"/"z" — rotate on that axis only.',
+            },
+        },
+        required: ['mesh', 'mode'],
+    }),
+}
+
+export const deleteAssetTool = {
+    description:
+        'Delete a file from the asset store permanently. Cannot delete folders.',
+    inputSchema: jsonSchema<{ path: string }>({
+        type: 'object',
+        properties: {
+            path: {
+                type: 'string',
+                description: 'Asset path to delete (e.g. "images/old.png").',
+            },
+        },
+        required: ['path'],
+    }),
+}
+
+export const createAssetFolderTool = {
+    description: 'Create a folder in the asset store.',
+    inputSchema: jsonSchema<{ path: string }>({
+        type: 'object',
+        properties: {
+            path: {
+                type: 'string',
+                description:
+                    'Folder path to create (e.g. "images/characters"). Parent folders are created automatically.',
+            },
+        },
+        required: ['path'],
+    }),
+}
+
 export const spawnAgentTool = {
     description:
         'Spawn a specialist subagent. Use agentType "scene" for 3D world building (meshes, lights, layout, assets), "script" for TypeScript gameplay scripting (writing/editing scripts, attaching them, debugging via simulation), "ui" for in-game UI (buttons, labels, HUDs via this.gui), and "asset" for generating image assets (textures, sprites, concept art). Provide a clear self-contained task and any relevant context.',

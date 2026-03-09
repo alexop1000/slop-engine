@@ -6,6 +6,7 @@ import {
     Node,
     ShadowLight,
     StandardMaterial,
+    Texture,
     TransformNode,
 } from 'babylonjs'
 import {
@@ -37,8 +38,7 @@ import type { ScriptNodeType } from '../../scripting/Script'
 
 const fmt = (v: number | undefined) => v?.toFixed(3)
 
-const sectionHeaderClass =
-    'border-b border-gray-700/40 pb-1 -mx-1 px-1'
+const sectionHeaderClass = 'border-b border-gray-700/40 pb-1 -mx-1 px-1'
 const sectionContentClass = 'pl-2 pt-0.5 pb-2 border-l border-gray-700/50 ml-1'
 const propertyGroupClass =
     'rounded bg-gray-900/50 border border-gray-700/30 px-2 py-1.5'
@@ -94,9 +94,65 @@ function TransformProperties(
     )
 }
 
-function MaterialProperties(props: Readonly<{ node: () => Mesh | undefined }>) {
+function MaterialProperties(
+    props: Readonly<{
+        node: () => Mesh | undefined
+        imageAssets: () => string[]
+    }>
+) {
     const material = () =>
         props.node()?.material as StandardMaterial | undefined
+
+    const currentTexturePath = () => {
+        const mesh = props.node()
+        if (!mesh?.metadata) return ''
+        return (
+            ((mesh.metadata as Record<string, unknown>).diffuseTexturePath as
+                | string
+                | undefined) ?? ''
+        )
+    }
+
+    let textureBlobUrl: string | null = null
+
+    async function applyTexture(path: string) {
+        const m = material()
+        const mesh = props.node()
+        if (!m || !mesh) return
+        if (m.diffuseTexture) {
+            m.diffuseTexture.dispose()
+            m.diffuseTexture = null
+        }
+        if (textureBlobUrl) {
+            URL.revokeObjectURL(textureBlobUrl)
+            textureBlobUrl = null
+        }
+        if (!path) {
+            if (mesh.metadata) {
+                delete (mesh.metadata as Record<string, unknown>)
+                    .diffuseTexturePath
+            }
+            return
+        }
+        const blob = await getBlob(path)
+        if (!blob) return
+        const scene = mesh.getScene()
+        if (!scene) return
+        const url = URL.createObjectURL(blob)
+        textureBlobUrl = url
+        m.diffuseTexture = new Texture(url, scene)
+        if (!mesh.metadata) mesh.metadata = {}
+        const meta = mesh.metadata as Record<string, unknown>
+        meta.diffuseTexturePath = path
+    }
+
+    const textureOptions = () => [
+        { label: '— None —', value: '' },
+        ...props.imageAssets().map((p) => ({
+            label: p.split('/').pop() ?? p,
+            value: p,
+        })),
+    ]
 
     return (
         <Show when={material()}>
@@ -106,6 +162,14 @@ function MaterialProperties(props: Readonly<{ node: () => Mesh | undefined }>) {
                 contentClass={sectionContentClass}
             >
                 <div class="flex flex-col gap-2 pt-0.5">
+                    <Select
+                        label="Diffuse Texture"
+                        options={textureOptions()}
+                        value={currentTexturePath()}
+                        onChange={(e) =>
+                            void applyTexture(e.currentTarget.value)
+                        }
+                    />
                     <Color3Input
                         label="Diffuse"
                         value={() => material()?.diffuseColor}
@@ -378,9 +442,7 @@ function ScriptProperties(
                                         <button
                                             type="button"
                                             class="text-blue-400 hover:text-blue-300 truncate text-left flex-1 min-w-0"
-                                            onClick={() =>
-                                                openScriptFile(path)
-                                            }
+                                            onClick={() => openScriptFile(path)}
                                             title="Open in editor"
                                         >
                                             {path}
@@ -419,6 +481,7 @@ export default function PropertiesPanel(
         node: Accessor<Node | undefined>
         setNodeTick: Setter<number>
         scriptAssets: Accessor<string[]>
+        imageAssets: Accessor<string[]>
     }>
 ) {
     const meshNode = () => props.node() as Mesh | undefined
@@ -469,30 +532,31 @@ export default function PropertiesPanel(
                         contentClass={sectionContentClass}
                     >
                         <div class="flex flex-col gap-2 pt-0.5">
-                        <Checkbox
-                            label="Enabled"
-                            checked={meshNode()?.metadata?.physicsEnabled}
-                            onChange={(e) => {
-                                const m = meshNode()
-                                if (m)
-                                    m.metadata.physicsEnabled =
-                                        e.currentTarget.checked
-                            }}
-                        />
-                        <Input
-                            label="Mass"
-                            type="number"
-                            min="0"
-                            step="0.1"
-                            value={fmt(meshNode()?.metadata?.physicsMass)}
-                            onChange={(e) => {
-                                const m = meshNode()
-                                if (m)
-                                    m.metadata.physicsMass = Number.parseFloat(
-                                        e.currentTarget.value
-                                    )
-                            }}
-                        />
+                            <Checkbox
+                                label="Enabled"
+                                checked={meshNode()?.metadata?.physicsEnabled}
+                                onChange={(e) => {
+                                    const m = meshNode()
+                                    if (m)
+                                        m.metadata.physicsEnabled =
+                                            e.currentTarget.checked
+                                }}
+                            />
+                            <Input
+                                label="Mass"
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={fmt(meshNode()?.metadata?.physicsMass)}
+                                onChange={(e) => {
+                                    const m = meshNode()
+                                    if (m)
+                                        m.metadata.physicsMass =
+                                            Number.parseFloat(
+                                                e.currentTarget.value
+                                            )
+                                }}
+                            />
                         </div>
                     </Collapsible>
                     <Collapsible
@@ -553,9 +617,30 @@ export default function PropertiesPanel(
                                             e.currentTarget.checked
                                 }}
                             />
+                            <Select
+                                label="Billboard Mode"
+                                options={[
+                                    { label: 'None', value: '0' },
+                                    { label: 'All', value: '7' },
+                                    { label: 'X axis', value: '1' },
+                                    { label: 'Y axis', value: '2' },
+                                    { label: 'Z axis', value: '4' },
+                                ]}
+                                value={String(meshNode()?.billboardMode ?? 0)}
+                                onChange={(e) => {
+                                    const m = meshNode()
+                                    if (m)
+                                        m.billboardMode = Number.parseInt(
+                                            e.currentTarget.value
+                                        )
+                                }}
+                            />
                         </div>
                     </Collapsible>
-                    <MaterialProperties node={meshNode} />
+                    <MaterialProperties
+                        node={meshNode}
+                        imageAssets={props.imageAssets}
+                    />
                 </Show>
                 <Switch>
                     <Match when={props.node() instanceof Light}>
@@ -565,13 +650,13 @@ export default function PropertiesPanel(
                                 contentClass={sectionContentClass}
                             >
                                 <div class="pt-0.5">
-                                <Vector3Input
-                                    value={() => lightNode()?.position}
-                                    onChange={(axis, value) => {
-                                        const l = lightNode()
-                                        if (l) l.position[axis] = value
-                                    }}
-                                />
+                                    <Vector3Input
+                                        value={() => lightNode()?.position}
+                                        onChange={(axis, value) => {
+                                            const l = lightNode()
+                                            if (l) l.position[axis] = value
+                                        }}
+                                    />
                                 </div>
                             </Collapsible>
 
@@ -689,13 +774,13 @@ export default function PropertiesPanel(
                                 contentClass={sectionContentClass}
                             >
                                 <div class="pt-0.5">
-                                <Vector3Input
-                                    value={() => cameraNode()?.position}
-                                    onChange={(axis, value) => {
-                                        const c = cameraNode()
-                                        if (c) c.position[axis] = value
-                                    }}
-                                />
+                                    <Vector3Input
+                                        value={() => cameraNode()?.position}
+                                        onChange={(axis, value) => {
+                                            const c = cameraNode()
+                                            if (c) c.position[axis] = value
+                                        }}
+                                    />
                                 </div>
                             </Collapsible>
                             <Collapsible

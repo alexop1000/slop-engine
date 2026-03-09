@@ -38,6 +38,7 @@ export function EditorLayout(props: Readonly<EditorLayoutProps>) {
         viewportTab,
         setViewportTab,
         scriptAssets,
+        imageAssets,
     } = props.state
 
     return (
@@ -222,6 +223,7 @@ export function EditorLayout(props: Readonly<EditorLayoutProps>) {
                                 }}
                                 setNodeTick={setNodeTick}
                                 scriptAssets={scriptAssets}
+                                imageAssets={imageAssets}
                             />
                         </Resizable.Panel>
                     </Resizable>

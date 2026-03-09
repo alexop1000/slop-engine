@@ -126,11 +126,11 @@ interface NodeSnapshot {
     children?: NodeSnapshot[]
 }
 
-function vec3ToArray(v: {
-    x: number
-    y: number
-    z: number
-}): [number, number, number] {
+function vec3ToArray(
+    v: { x: number; y: number; z: number } | null | undefined
+): [number, number, number] | undefined {
+    if (!v || typeof v.x !== 'number' || typeof v.y !== 'number' || typeof v.z !== 'number')
+        return undefined
     return [
         Math.round(v.x * 1000) / 1000,
         Math.round(v.y * 1000) / 1000,
@@ -138,11 +138,11 @@ function vec3ToArray(v: {
     ]
 }
 
-function color3ToArray(c: {
-    r: number
-    g: number
-    b: number
-}): [number, number, number] {
+function color3ToArray(
+    c: { r: number; g: number; b: number } | null | undefined
+): [number, number, number] | undefined {
+    if (!c || typeof c.r !== 'number' || typeof c.g !== 'number' || typeof c.b !== 'number')
+        return undefined
     return [
         Math.round(c.r * 1000) / 1000,
         Math.round(c.g * 1000) / 1000,
@@ -169,17 +169,22 @@ function snapshotNode(node: Node): NodeSnapshot {
     }
 
     if (node instanceof TransformNode) {
-        snap.position = vec3ToArray(node.position)
-        snap.rotation = vec3ToArray(node.rotation)
-        snap.scale = vec3ToArray(node.scaling)
+        const pos = vec3ToArray(node.position)
+        if (pos) snap.position = pos
+        const rot = vec3ToArray(node.rotation)
+        if (rot) snap.rotation = rot
+        const scl = vec3ToArray(node.scaling)
+        if (scl) snap.scale = scl
     } else if ('position' in node && node.position instanceof Vector3) {
-        snap.position = vec3ToArray(node.position)
+        const pos = vec3ToArray(node.position)
+        if (pos) snap.position = pos
     }
 
     if (node instanceof Mesh) {
         const mat = node.material
         if (mat instanceof StandardMaterial) {
-            snap.color = color3ToArray(mat.diffuseColor)
+            const col = color3ToArray(mat.diffuseColor)
+            if (col) snap.color = col
         }
         snap.visible = node.isVisible
         snap.visibility = Math.round(node.visibility * 1000) / 1000
@@ -217,14 +222,16 @@ function snapshotNode(node: Node): NodeSnapshot {
     if (node instanceof Light) {
         snap.intensity = Math.round(node.intensity * 1000) / 1000
         if ('diffuse' in node) {
-            snap.color = color3ToArray(
+            const col = color3ToArray(
                 (node as Light & { diffuse: Color3 }).diffuse
             )
+            if (col) snap.color = col
         }
         if ('direction' in node) {
-            snap.direction = vec3ToArray(
+            const dir = vec3ToArray(
                 (node as Light & { direction: Vector3 }).direction
             )
+            if (dir) snap.direction = dir
         }
     }
 

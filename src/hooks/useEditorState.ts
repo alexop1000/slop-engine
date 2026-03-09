@@ -2,7 +2,7 @@ import { createSignal, createMemo, type Accessor, type Setter } from 'solid-js'
 import type { Scene, Node, Engine, GizmoManager } from 'babylonjs'
 import { makePersisted } from '@solid-primitives/storage'
 import { getAssetStore } from '../assetStore'
-import { collectScriptPaths } from '../utils/editorUtils'
+import { collectScriptPaths, collectImagePaths } from '../utils/editorUtils'
 import { onScriptOpen } from '../scriptEditorStore'
 
 export type GizmoType = 'position' | 'rotation' | 'scale' | 'boundingBox'
@@ -45,6 +45,7 @@ export interface EditorState {
     viewportTab: Accessor<string | undefined>
     setViewportTab: Setter<string | undefined>
     scriptAssets: Accessor<string[]>
+    imageAssets: Accessor<string[]>
 }
 
 export function useEditorState(): EditorState {
@@ -106,6 +107,7 @@ export function useEditorState(): EditorState {
 
     const assetStore = getAssetStore()
     const scriptAssets = createMemo(() => collectScriptPaths(assetStore.tree()))
+    const imageAssets = createMemo(() => collectImagePaths(assetStore.tree()))
 
     return {
         sizes,
@@ -145,5 +147,6 @@ export function useEditorState(): EditorState {
         viewportTab,
         setViewportTab,
         scriptAssets,
+        imageAssets,
     }
 }
