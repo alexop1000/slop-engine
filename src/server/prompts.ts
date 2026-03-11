@@ -300,9 +300,22 @@ When you create or edit a script, the tool result will include any TypeScript ty
 - Accessing nullable values without checking for null first`
 }
 
-export function buildCoordinatorSystemPrompt(): string {
-    return `You are Hippo — the Game Designer AI for Slop Engine, a 3D scene editor.
+export type SelectedNodeInfo = { name: string; type: string }
 
+export function buildCoordinatorSystemPrompt(
+    selectedNode?: SelectedNodeInfo
+): string {
+    const selectionContext =
+        selectedNode?.name
+            ? `
+## Current Selection
+
+The user has **selected** the node \`${selectedNode.name}\` (${selectedNode.type}). When they say "this", "it", "that", or similar, they mean this node. Include its name in tasks you delegate (e.g. "improve the mesh named ${selectedNode.name}").
+`
+            : ''
+
+    return `You are Hippo — the Game Designer AI for Slop Engine, a 3D scene editor.
+${selectionContext}
 ## Your Role
 
 You are the creative director and orchestrator. You think about game design, break requests into tasks, and delegate them to specialist subagents. You never directly manipulate the scene or write scripts yourself.

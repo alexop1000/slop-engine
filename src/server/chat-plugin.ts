@@ -1,6 +1,7 @@
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
 import { createAzure } from '@ai-sdk/azure'
+import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import {
     streamText,
     generateText,
@@ -63,6 +64,26 @@ type SubagentMessage = {
     content: unknown
 }
 
+type ModelSettings = {
+    provider: 'azure' | 'openrouter'
+    models: Record<string, string>
+}
+
+function getModel(
+    provider: ReturnType<typeof createAzure>,
+    openrouter: ReturnType<typeof createOpenRouter>,
+    settings: ModelSettings | undefined,
+    agentType: 'orchestrator' | 'scene' | 'script' | 'ui' | 'asset',
+    envDefault: string
+) {
+    const modelId =
+        settings?.models?.[agentType]?.trim() || envDefault
+    if (settings?.provider === 'openrouter') {
+        return openrouter.chat(modelId)
+    }
+    return provider(modelId)
+}
+
 export function chatApiPlugin(): Plugin {
     return {
         name: 'chat-api',
@@ -76,6 +97,9 @@ export function chatApiPlugin(): Plugin {
             const azure = createAzure({
                 apiKey: env.AZURE_OPENAI_API_KEY,
                 resourceName: env.AZURE_OPENAI_RESOURCE_NAME,
+            })
+            const openrouter = createOpenRouter({
+                apiKey: env.OPENROUTER_API_KEY,
             })
 
             const apiDtsContent = readFileSync(
@@ -177,17 +201,25 @@ export function chatApiPlugin(): Plugin {
                         req.on('end', () => resolve(data))
                     })
 
-                    const { messages } = JSON.parse(body) as {
-                        messages: UIMessage[]
-                    }
+                    const { messages, modelSettings, selectedNode } =
+                        JSON.parse(body) as {
+                            messages: UIMessage[]
+                            modelSettings?: ModelSettings
+                            selectedNode?: { name: string; type: string }
+                        }
 
                     const modelMessages = await convertToModelMessages(messages)
+                    const model = getModel(
+                        azure,
+                        openrouter,
+                        modelSettings,
+                        'orchestrator',
+                        env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat'
+                    )
 
                     const result = streamText({
-                        model: azure(
-                            env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat'
-                        ),
-                        system: buildCoordinatorSystemPrompt(),
+                        model,
+                        system: buildCoordinatorSystemPrompt(selectedNode),
                         tools: {
                             get_scene: getSceneTool,
                             play_simulation: playSimulationTool,
@@ -354,9 +386,10 @@ export function chatApiPlugin(): Plugin {
                         req.on('end', () => resolve(data))
                     })
 
-                    const { messages, agentType } = JSON.parse(body) as {
+                    const { messages, agentType, modelSettings } = JSON.parse(body) as {
                         messages: SubagentMessage[]
                         agentType: 'scene' | 'script' | 'ui' | 'asset'
+                        modelSettings?: ModelSettings
                     }
 
                     const isScriptingAgent =
@@ -416,11 +449,17 @@ export function chatApiPlugin(): Plugin {
                                   save_prefab: savePrefabTool,
                               }
 
+                    const model = getModel(
+                        azure,
+                        openrouter,
+                        modelSettings,
+                        agentType,
+                        env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat'
+                    )
+
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const result = await generateText({
-                        model: azure(
-                            env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat'
-                        ),
+                        model,
                         system,
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         tools: tools as any,

@@ -45,10 +45,11 @@ function configureMonacoDefaults() {
             allowNonTsExtensions: true,
             strict: true,
             noEmit: true,
-            // Prevent default lib from polluting the script environment
-            // with DOM types, Node types, etc.
-            noLib: true,
-            // Still include basic ES types
+            // Keep the standard ES lib so utility types like Record,
+            // Array, Promise, etc. resolve correctly inside scripts.
+            // Restrict lib selection to ES only so browser DOM globals
+            // do not leak into the gameplay scripting environment.
+            noLib: false,
             lib: ['esnext'],
         })
     }

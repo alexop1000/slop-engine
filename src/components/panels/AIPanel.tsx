@@ -1,4 +1,5 @@
 import { useChat } from '@kodehort/ai-sdk-solid'
+import { DefaultChatTransport } from 'ai'
 import {
     type Accessor,
     type Setter,
@@ -38,6 +39,8 @@ import {
 import { ChatMessage } from './ai/ChatMessage'
 import { HistoryItem } from './ai/HistoryItem'
 import { createToolExecutor } from './ai/toolExecutor'
+import { modelSettings } from '../../modelSettingsStore'
+import { ModelSettingsPanel } from './ai/ModelSettingsPanel'
 
 const MAX_ROUND_TRIPS = 12
 const MAX_CONSECUTIVE_ERRORS = 3
@@ -56,7 +59,8 @@ export default function AIPanel(
     }>
 ) {
     const [input, setInput] = createSignal('')
-    const [showHistory, setShowHistory] = createSignal(false)
+    type AIPanelView = 'chat' | 'history' | 'settings'
+    const [view, setView] = createSignal<AIPanelView>('chat')
     const [sessions, setSessions] = createSignal<ChatSession[]>([])
     const recentAutoSendKeys: string[] = []
     let roundTripCount = 0
@@ -78,9 +82,27 @@ export default function AIPanel(
         isPlaying: props.isPlaying,
         requestPlay: props.requestPlay,
         requestStop: props.requestStop,
+        modelSettings,
     })
 
     const chat = useChat({
+        transport: new DefaultChatTransport({
+            body: () => {
+                const node = props.selectedNode()
+                const selectedNode = node
+                    ? {
+                          name: node.name,
+                          type:
+                              (node as { getClassName?: () => string })
+                                  .getClassName?.() ?? 'Node',
+                      }
+                    : undefined
+                return {
+                    modelSettings: modelSettings(),
+                    ...(selectedNode && { selectedNode }),
+                }
+            },
+        }),
         sendAutomaticallyWhen: ({ messages }) => {
             const last = messages.at(-1)
             if (!last || last.role !== 'assistant') return false
@@ -268,7 +290,7 @@ export default function AIPanel(
         const err = fixErrorRequest()
         if (!err) return
         clearFixErrorRequest()
-        setShowHistory(false)
+        setView('chat')
         startNewChat().then(() => {
             chat.sendMessage({
                 text: `Fix this error:\n\n${err}`,
@@ -329,13 +351,13 @@ export default function AIPanel(
         roundTripCount = 0
         recentAutoSendKeys.length = 0
         consecutiveErrorCounts.clear()
-        setShowHistory(false)
+        setView('chat')
         inputRef?.focus()
     }
 
     const switchToChat = async (sessionId: string) => {
         if (sessionId === activeChatId()) {
-            setShowHistory(false)
+            setView('chat')
             return
         }
 
@@ -349,7 +371,7 @@ export default function AIPanel(
             chat.setMessages(session.messages)
             restoreSubagentStates(session.subagentStates ?? {})
         }
-        setShowHistory(false)
+        setView('chat')
         inputRef?.focus()
     }
 
@@ -392,10 +414,14 @@ export default function AIPanel(
         <div class="flex flex-col h-full">
             <div class="flex items-center justify-between px-2 pb-1 shrink-0 gap-1">
                 <span class="text-xs text-gray-400 font-medium truncate">
-                    {showHistory() ? 'Chat History' : 'AI Assistant'}
+                    {view() === 'history'
+                        ? 'Chat History'
+                        : view() === 'settings'
+                        ? 'Settings'
+                        : 'AI Assistant'}
                 </span>
                 <div class="flex items-center gap-0.5 shrink-0">
-                    <Show when={!showHistory()}>
+                    <Show when={view() === 'chat'}>
                         <button
                             class="p-1 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 transition-colors"
                             onClick={startNewChat}
@@ -419,12 +445,14 @@ export default function AIPanel(
                     </Show>
                     <button
                         class={`p-1 rounded transition-colors ${
-                            showHistory()
+                            view() === 'history'
                                 ? 'text-blue-400 bg-gray-700/50'
                                 : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'
                         }`}
-                        onClick={() => setShowHistory((v) => !v)}
-                        title={showHistory() ? 'Back to chat' : 'Chat history'}
+                        onClick={() =>
+                            setView((v) => (v === 'history' ? 'chat' : 'history'))
+                        }
+                        title={view() === 'history' ? 'Back to chat' : 'Chat history'}
                         type="button"
                     >
                         <svg
@@ -441,10 +469,41 @@ export default function AIPanel(
                             />
                         </svg>
                     </button>
+                    <button
+                        class={`p-1 rounded transition-colors ${
+                            view() === 'settings'
+                                ? 'text-blue-400 bg-gray-700/50'
+                                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'
+                        }`}
+                        onClick={() =>
+                            setView((v) => (v === 'settings' ? 'chat' : 'settings'))
+                        }
+                        title={view() === 'settings' ? 'Back to chat' : 'Settings'}
+                        type="button"
+                    >
+                        <svg
+                            class="w-3.5 h-3.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                            />
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                            />
+                        </svg>
+                    </button>
                 </div>
             </div>
 
-            <Show when={showHistory()}>
+            <Show when={view() === 'history'}>
                 <div class="flex-1 min-h-0 overflow-y-auto px-1 py-1">
                     <Show
                         when={sessions().length > 0}
@@ -481,7 +540,13 @@ export default function AIPanel(
                 </div>
             </Show>
 
-            <Show when={!showHistory()}>
+            <Show when={view() === 'settings'}>
+                <div class="flex-1 min-h-0 overflow-y-auto px-2 py-2">
+                    <ModelSettingsPanel />
+                </div>
+            </Show>
+
+            <Show when={view() === 'chat'}>
                 <div
                     ref={scrollContainer}
                     class="flex-1 min-h-0 overflow-y-auto px-2 py-1"

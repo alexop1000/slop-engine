@@ -1,5 +1,6 @@
 import type { Accessor, Setter } from 'solid-js'
 import type { Scene, Node } from 'babylonjs'
+import type { ModelSettings } from '../../../modelSettingsStore'
 import {
     getAssetStore,
     getBlob,
@@ -213,6 +214,7 @@ export interface ToolExecutorContext {
     isPlaying: Accessor<boolean>
     requestPlay: () => Promise<void>
     requestStop: () => Promise<void>
+    modelSettings: Accessor<ModelSettings>
 }
 
 const SCRIPT_EXT = ['.ts', '.tsx', '.js', '.jsx']
@@ -1027,7 +1029,11 @@ export function createToolExecutor(
             const res = await fetch('/api/subagent', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages, agentType: args.agentType }),
+                body: JSON.stringify({
+                    messages,
+                    agentType: args.agentType,
+                    modelSettings: ctx.modelSettings(),
+                }),
             })
 
             if (!res.ok) {

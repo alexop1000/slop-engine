@@ -29,6 +29,7 @@ import {
     setupRuntimeCamera,
 } from '../scene/EditorScene'
 import type { SceneSnapshot } from '../scene/EditorScene'
+
 import { ScriptRuntime } from '../scripting/ScriptRuntime'
 import { clearLogs } from '../scripting/consoleStore'
 import { getInitializedHavok } from '../utils/editorUtils'
@@ -63,87 +64,48 @@ export function useEditorEngine(state: EditorState) {
     let _sceneSnapshot: SceneSnapshot | null = null
     let _scriptRuntime: ScriptRuntime | null = null
     let _physicsPlugin: HavokPlugin | null = null
-    const _undoStack: string[] = []
-    const _redoStack: string[] = []
+    const _undoStack: SceneSnapshot[] = []
+    const _redoStack: SceneSnapshot[] = []
     const [undoRedoVersion, setUndoRedoVersion] = createSignal(0)
 
     function pushUndoState() {
         const s = scene()
         if (!s || isPlaying()) return
         try {
-            const json = serializeScene(s)
+            const snapshot = captureSceneSnapshot(s)
             if (_undoStack.length >= MAX_UNDO_STEPS) _undoStack.shift()
-            _undoStack.push(json)
+            _undoStack.push(snapshot)
             _redoStack.length = 0
             setUndoRedoVersion((v) => v + 1)
         } catch {
-            // ignore serialization errors
+            // ignore snapshot errors
         }
     }
 
-    async function replaceSceneFromJson(json: string) {
-        const eng = engine()
-        const plugin = _physicsPlugin
-        if (!eng || !plugin) return
-        const oldScene = scene()
-        if (!oldScene) return
-        try {
-            const result = await loadSceneFromJson(eng, json, plugin)
-            const newScene = result.scene
-            await rehydrateTextures(newScene)
-            const canvas = document.getElementById('canvas') as HTMLCanvasElement
-            setupEditorCamera(newScene, canvas)
-            const utilityLayer = new UtilityLayerRenderer(newScene)
-            const gm = new GizmoManager(newScene, undefined, utilityLayer)
-            gm.positionGizmoEnabled = false
-            gm.rotationGizmoEnabled = false
-            gm.scaleGizmoEnabled = false
-            gm.enableAutoPicking = false
-            gm.boundingBoxGizmoEnabled = false
-            newScene.onBeforeRenderObservable.add(() => {
-                if (_isDraggingGizmo) setNodeTick((t) => t + 1)
-            })
-            newScene.onNewMeshAddedObservable.add(() => scheduleAutoSave())
-            newScene.onMeshRemovedObservable.add(() => scheduleAutoSave())
-            newScene.onNewLightAddedObservable.add(() => scheduleAutoSave())
-            newScene.onLightRemovedObservable.add(() => scheduleAutoSave())
-            newScene.onNewTransformNodeAddedObservable.add(() =>
-                scheduleAutoSave()
-            )
-            newScene.onTransformNodeRemovedObservable.add(() =>
-                scheduleAutoSave()
-            )
-            oldScene.dispose()
-            setScene(newScene)
-            setSceneJson(serializeScene(newScene))
-            setSelectedNode(undefined)
-            setNodeTick((t) => t + 1)
-            setGizmoManager(gm)
-            setLastSaved(new Date())
-            setIsDirty(true)
-        } catch (err) {
-            console.error('Failed to restore scene:', err)
-        }
-    }
-
-    async function undo() {
-        if (_undoStack.length === 0 || isPlaying()) return
-        const json = _undoStack.pop()!
-        const currentJson = serializeScene(scene()!)
+    function undo() {
+        const s = scene()
+        if (_undoStack.length === 0 || isPlaying() || !s) return
+        const currentSnapshot = captureSceneSnapshot(s)
         if (_redoStack.length >= MAX_UNDO_STEPS) _redoStack.shift()
-        _redoStack.push(currentJson)
+        _redoStack.push(currentSnapshot)
+        const snapshot = _undoStack.pop()!
+        restoreSceneSnapshot(s, snapshot)
         setUndoRedoVersion((v) => v + 1)
-        await replaceSceneFromJson(json)
+        setNodeTick((t) => t + 1)
+        scheduleAutoSave()
     }
 
-    async function redo() {
-        if (_redoStack.length === 0 || isPlaying()) return
-        const json = _redoStack.pop()!
-        const currentJson = serializeScene(scene()!)
+    function redo() {
+        const s = scene()
+        if (_redoStack.length === 0 || isPlaying() || !s) return
+        const currentSnapshot = captureSceneSnapshot(s)
         if (_undoStack.length >= MAX_UNDO_STEPS) _undoStack.shift()
-        _undoStack.push(currentJson)
+        _undoStack.push(currentSnapshot)
+        const snapshot = _redoStack.pop()!
+        restoreSceneSnapshot(s, snapshot)
         setUndoRedoVersion((v) => v + 1)
-        await replaceSceneFromJson(json)
+        setNodeTick((t) => t + 1)
+        scheduleAutoSave()
     }
 
     const canUndo = createMemo(
@@ -356,13 +318,13 @@ export function useEditorEngine(state: EditorState) {
                 if (e.key === 'z') {
                     e.preventDefault()
                     if (e.shiftKey) {
-                        void redo()
+                        redo()
                     } else {
-                        void undo()
+                        undo()
                     }
                 } else if (e.key === 'y') {
                     e.preventDefault()
-                    void redo()
+                    redo()
                 }
             }
         }
