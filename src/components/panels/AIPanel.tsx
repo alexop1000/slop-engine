@@ -7,6 +7,7 @@ import {
     For,
     Show,
     createEffect,
+    onCleanup,
     onMount,
     untrack,
 } from 'solid-js'
@@ -75,6 +76,7 @@ export default function AIPanel(
         import('../../hooks/useEditorEngine').Checkpoint
     >()
     const [checkpointTick, setCheckpointTick] = createSignal(0)
+    const [shouldAutoScroll, setShouldAutoScroll] = createSignal(true)
 
     let scrollContainer: HTMLDivElement | undefined
     let inputRef: HTMLTextAreaElement | undefined
@@ -251,6 +253,20 @@ export default function AIPanel(
         chat.status === 'submitted' ||
         hasPendingToolCalls()
 
+    const isNearBottom = (el: HTMLDivElement) =>
+        el.scrollHeight - el.scrollTop - el.clientHeight <= 32
+
+    const scrollToBottom = (behavior: ScrollBehavior = 'auto') => {
+        const el = scrollContainer
+        if (!el) return
+
+        el.scrollTo({ top: el.scrollHeight, behavior })
+    }
+
+    const handleScroll = (e: Event & { currentTarget: HTMLDivElement }) => {
+        setShouldAutoScroll(isNearBottom(e.currentTarget))
+    }
+
     onMount(async () => {
         const allSessions = await getAllSessions()
         setSessions(allSessions)
@@ -268,6 +284,8 @@ export default function AIPanel(
             setActiveChatId(generateChatId())
         }
 
+        setShouldAutoScroll(true)
+        requestAnimationFrame(() => scrollToBottom())
         inputRef?.focus()
     })
 
@@ -285,12 +303,28 @@ export default function AIPanel(
 
     createEffect(() => {
         const _msgs = chat.messages
-        const el = scrollContainer
-        if (el) {
-            requestAnimationFrame(() => {
-                el.scrollTop = el.scrollHeight
-            })
+        if (!shouldAutoScroll()) return
+
+        requestAnimationFrame(() => {
+            scrollToBottom()
+        })
+    })
+
+    createEffect(() => {
+        if (!shouldAutoScroll() || chat.status !== 'streaming') return
+
+        let frame = 0
+
+        const tick = () => {
+            scrollToBottom()
+            frame = requestAnimationFrame(tick)
         }
+
+        frame = requestAnimationFrame(tick)
+
+        onCleanup(() => {
+            cancelAnimationFrame(frame)
+        })
     })
 
     createEffect(() => {
@@ -367,6 +401,8 @@ export default function AIPanel(
         recentAutoSendKeys.length = 0
         consecutiveErrorCounts.clear()
         setView('chat')
+        setShouldAutoScroll(true)
+        requestAnimationFrame(() => scrollToBottom())
         inputRef?.focus()
     }
 
@@ -389,6 +425,8 @@ export default function AIPanel(
         checkpoints.clear()
         setCheckpointTick((t) => t + 1)
         setView('chat')
+        setShouldAutoScroll(true)
+        requestAnimationFrame(() => scrollToBottom())
         inputRef?.focus()
     }
 
@@ -422,6 +460,8 @@ export default function AIPanel(
         }
 
         setInput('')
+        setShouldAutoScroll(true)
+        requestAnimationFrame(() => scrollToBottom())
         roundTripCount = 0
         recentAutoSendKeys.length = 0
         consecutiveErrorCounts.clear()
@@ -443,6 +483,26 @@ export default function AIPanel(
         }
     }
 
+    const syncInputHeight = () => {
+        const el = inputRef
+        if (!el) return
+
+        el.style.height = '0px'
+        el.style.height = `${Math.min(el.scrollHeight, 180)}px`
+    }
+
+    const handleInput = (
+        e: InputEvent & { currentTarget: HTMLTextAreaElement }
+    ) => {
+        setInput(e.currentTarget.value)
+        syncInputHeight()
+    }
+
+    createEffect(() => {
+        input()
+        requestAnimationFrame(() => syncInputHeight())
+    })
+
     return (
         <div class="flex flex-col h-full">
             <div class="flex items-center justify-between px-2 pb-1 shrink-0 gap-1">
@@ -450,8 +510,8 @@ export default function AIPanel(
                     {view() === 'history'
                         ? 'Chat History'
                         : view() === 'settings'
-                        ? 'Settings'
-                        : 'AI Assistant'}
+                          ? 'Settings'
+                          : 'AI Assistant'}
                 </span>
                 <div class="flex items-center gap-0.5 shrink-0">
                     <Show when={view() === 'chat'}>
@@ -593,6 +653,7 @@ export default function AIPanel(
                 <div
                     ref={scrollContainer}
                     class="flex-1 min-h-0 overflow-y-auto px-2 py-1"
+                    onScroll={handleScroll}
                 >
                     <Show
                         when={chat.messages.length > 0}
@@ -681,49 +742,83 @@ export default function AIPanel(
                     </div>
                 </Show>
 
-                <form
-                    class="shrink-0 flex gap-1.5 px-2 pb-2 pt-1"
-                    onSubmit={handleSubmit}
-                >
-                    <textarea
-                        ref={inputRef}
+                <form class="shrink-0 px-2 pb-2 pt-1" onSubmit={handleSubmit}>
+                    <div
                         class="
-                            flex-1 rounded-md px-3 py-2 text-sm resize-none
-                            bg-gray-900 text-gray-100
-                            border border-gray-700
-                            placeholder:text-gray-500
-                            focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500
-                            disabled:opacity-50 disabled:cursor-not-allowed
+                            rounded-xl border border-gray-700/80 bg-gray-900
+                            transition-[border-color,box-shadow,background-color] duration-150
+                            focus-within:border-blue-500/80
+                            data-[disabled=true]:opacity-60
                         "
-                        rows={1}
-                        placeholder="Ask the AI…"
-                        value={input()}
-                        onInput={(e) => setInput(e.currentTarget.value)}
-                        onKeyDown={handleKeyDown}
-                        disabled={isWorking()}
-                    />
-                    <Show
-                        when={!isWorking()}
-                        fallback={
-                            <Button
-                                variant="danger"
-                                size="sm"
-                                type="button"
-                                onClick={() => chat.stop()}
-                            >
-                                Stop
-                            </Button>
-                        }
+                        data-disabled={isWorking()}
                     >
-                        <Button
-                            variant="primary"
-                            size="sm"
-                            type="submit"
-                            disabled={!input().trim()}
-                        >
-                            Send
-                        </Button>
-                    </Show>
+                        <div class="flex items-end gap-2 px-3 pt-3">
+                            <textarea
+                                ref={inputRef}
+                                class="
+                                    min-h-11 max-h-45 flex-1 overflow-y-auto bg-transparent text-sm text-gray-100
+                                    placeholder:text-gray-500 resize-none leading-5
+                                    focus:outline-none disabled:cursor-not-allowed
+                                "
+                                rows={1}
+                                placeholder="Ask for scene changes, scripts, or fixes…"
+                                value={input()}
+                                onInput={handleInput}
+                                onKeyDown={handleKeyDown}
+                                disabled={isWorking()}
+                            />
+                            <Show
+                                when={!isWorking()}
+                                fallback={
+                                    <button
+                                        class="
+                                            mb-1 inline-flex h-10 items-center justify-center rounded-lg
+                                            border border-red-500/40 bg-red-500/12 px-3 text-xs font-medium text-red-200
+                                            transition-colors hover:bg-red-500/18 focus:outline-none focus:ring-2 focus:ring-red-500/50
+                                        "
+                                        type="button"
+                                        onClick={() => chat.stop()}
+                                    >
+                                        Stop
+                                    </button>
+                                }
+                            >
+                                <button
+                                    class="
+                                        mb-1 inline-flex h-10 items-center gap-2 rounded-lg px-3.5 text-sm font-medium
+                                        transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500/60
+                                        disabled:cursor-not-allowed disabled:opacity-45
+                                        bg-blue-500 text-white hover:bg-blue-400
+                                    "
+                                    type="submit"
+                                    disabled={!input().trim()}
+                                >
+                                    <span>Send</span>
+                                    <svg
+                                        class="h-3.5 w-3.5"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            d="M5 12h14m-6-6 6 6-6 6"
+                                        />
+                                    </svg>
+                                </button>
+                            </Show>
+                        </div>
+                        <div class="flex items-center justify-between px-3 pb-2 pt-1 text-[11px] text-gray-500">
+                            <span>
+                                Enter sends. Shift+Enter adds a new line.
+                            </span>
+                            <span class="text-gray-400/80">
+                                {isWorking() ? 'AI is responding…' : 'Ready'}
+                            </span>
+                        </div>
+                    </div>
                 </form>
             </Show>
         </div>
