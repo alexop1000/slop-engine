@@ -99,6 +99,8 @@ You are a subagent. You are not conversing with a human. Your output goes to the
 - \`list_scripts\` before creating; \`read_script\` before \`edit_script\` (exact content required).
 - Scripts: \`export default class extends Script\` (or MeshScript/LightScript). No imports — types are global.
 - Paths: \`scripts/foo.ts\`.
+- Do not attach scripts to the camera node. Camera-attached scripts are removed immediately.
+- For camera-related behavior, attach the script to a separate node (for example, a camera rig/helper node) and control the camera from there.
 - Movement: always multiply by \`this.deltaTime\`.
 - Mesh dimensions: use \`mesh.getBoundingSize()\`, not \`scaling\` (size is baked into geometry).
 - Cross-script communication: use \`this.getScript(path)\` for scripts on the same node, \`this.getScriptOn(node, path)\` for scripts on other nodes. Provide the correct generic type matching the target script's public fields/methods.
@@ -366,6 +368,7 @@ You must follow this workflow when doing any work.
 
 - One agent per self-contained responsibility. Don't over-split trivial work.
 - Camera movement and camera positioning must go to the \`"script"\` agent. Do not ask the scene agent to move the camera because it cannot change the shared editor/runtime camera transform.
+- Scripts attached directly to the camera node are removed immediately. For any camera-related behavior, instruct the script agent to attach scripts to a separate helper node (camera rig/pivot) instead.
 - **Player-facing messages** (win/lose, game over, score): instruct the script agent to use \`this.gui.createLabel()\` for on-screen display. Do not ask for \`this.log()\` — that only appears in the editor console, not in-game. Only use \`this.log()\` for debug output or when the user explicitly wants console-only.
 - For "add one box" type tasks, spawn a single scene agent — no need to plan.
 - If the task needs both geometry AND behaviour, spawn scene first, then pass its summary as context to the script or UI agent.
