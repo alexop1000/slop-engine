@@ -1,6 +1,7 @@
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
 import { createAzure } from '@ai-sdk/azure'
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import {
     streamText,
@@ -65,22 +66,49 @@ type SubagentMessage = {
 }
 
 type ModelSettings = {
-    provider: 'azure' | 'openrouter'
+    provider: 'azure' | 'openrouter' | 'google'
     models: Record<string, string>
+    credentials?: {
+        azureApiKey?: string
+        azureResourceName?: string
+        openrouterApiKey?: string
+        googleApiKey?: string
+    }
 }
 
 function getModel(
-    provider: ReturnType<typeof createAzure>,
-    openrouter: ReturnType<typeof createOpenRouter>,
     settings: ModelSettings | undefined,
     agentType: 'orchestrator' | 'scene' | 'script' | 'ui' | 'asset',
-    envDefault: string
+    envDefault: string,
+    env: Record<string, string>
 ) {
     const modelId = settings?.models?.[agentType]?.trim() || envDefault
+    const credentials = settings?.credentials
+
     if (settings?.provider === 'openrouter') {
+        const openrouter = createOpenRouter({
+            apiKey:
+                credentials?.openrouterApiKey?.trim() ||
+                env.OPENROUTER_API_KEY,
+        })
         return openrouter.chat(modelId)
     }
-    return provider(modelId)
+
+    if (settings?.provider === 'google') {
+        const google = createGoogleGenerativeAI({
+            apiKey: credentials?.googleApiKey?.trim() || env.GOOGLE_API_KEY,
+        })
+        return google(modelId)
+    }
+
+    const azure = createAzure({
+        apiKey: credentials?.azureApiKey?.trim() || env.AZURE_OPENAI_API_KEY,
+        resourceName:
+            credentials?.azureResourceName?.trim() ||
+            env.AZURE_OPENAI_RESOURCE_NAME,
+    })
+
+    return azure(modelId)
 }
 
 export function chatApiPlugin(): Plugin {
@@ -92,14 +120,6 @@ export function chatApiPlugin(): Plugin {
                 server.config.envDir ?? process.cwd(),
                 ''
             )
-
-            const azure = createAzure({
-                apiKey: env.AZURE_OPENAI_API_KEY,
-                resourceName: env.AZURE_OPENAI_RESOURCE_NAME,
-            })
-            const openrouter = createOpenRouter({
-                apiKey: env.OPENROUTER_API_KEY,
-            })
 
             const apiDtsContent = readFileSync(
                 resolve(server.config.root, 'src/scripting/api.d.ts'),
@@ -209,11 +229,10 @@ export function chatApiPlugin(): Plugin {
 
                     const modelMessages = await convertToModelMessages(messages)
                     const model = getModel(
-                        azure,
-                        openrouter,
                         modelSettings,
                         'orchestrator',
-                        env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat'
+                        env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat',
+                        env
                     )
 
                     const result = streamText({
@@ -451,11 +470,10 @@ export function chatApiPlugin(): Plugin {
                               }
 
                     const model = getModel(
-                        azure,
-                        openrouter,
                         modelSettings,
                         agentType,
-                        env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat'
+                        env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat',
+                        env
                     )
 
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any

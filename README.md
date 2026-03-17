@@ -5,8 +5,21 @@ Those templates dependencies are maintained via [pnpm](https://pnpm.io) via `pnp
 This is the reason you see a `pnpm-lock.yaml`. That being said, any package manager will work. This file can be safely be removed once you clone a template.
 
 ```bash
-$ npm install # or pnpm install or yarn install
+bun install
 ```
+
+## AI provider setup
+
+The AI settings panel supports provider/model selection per agent, with optional
+local BYOK credentials stored in browser localStorage for this workspace.
+
+If you prefer environment-based keys, configure:
+
+- `AZURE_OPENAI_API_KEY`
+- `AZURE_OPENAI_RESOURCE_NAME`
+- `AZURE_OPENAI_DEPLOYMENT` (optional fallback deployment)
+- `OPENROUTER_API_KEY`
+- `GOOGLE_API_KEY` (Gemini via Google AI Studio)
 
 ## Exploring the template
 
