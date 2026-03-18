@@ -1,8 +1,108 @@
 import { createSignal, For, Show } from 'solid-js'
-import { isToolPart } from './types'
+import {
+    isToolPart,
+    getToolNameFromPart,
+    type ToolUIPart,
+    type ClarificationInput,
+    type PlanInput,
+} from './types'
 import { groupPartsInOrder, parseContent } from './utils'
 import { CodeBlock } from './CodeBlock'
 import { ToolCallIndicator } from './ToolCallIndicator'
+import { PlanningCards } from './PlanningCards'
+import { PlanSummary } from './PlanSummary'
+import { resolvePlanning } from './planningStore'
+import { Spinner } from '../../ui/Spinner'
+
+/** Reactive wrapper for ask_clarification tool — tracks input/state changes */
+function PlanningClarification(props: { part: ToolUIPart }) {
+    const input = () => props.part.input as ClarificationInput | undefined
+    const isDone = () =>
+        props.part.state === 'output-available' ||
+        props.part.state === 'output-error'
+
+    return (
+        <Show
+            when={input()}
+            fallback={
+                <div class="flex items-center gap-2 text-gray-400 text-xs py-2">
+                    <Spinner size="xs" />
+                    <span>Preparing question...</span>
+                </div>
+            }
+        >
+            {(ci) => (
+                <PlanningCards
+                    question={ci().question}
+                    options={ci().options ?? []}
+                    allowCustom={ci().allowCustom}
+                    multiSelect={ci().multiSelect}
+                    disabled={isDone()}
+                    onSubmit={(ids, custom) => {
+                        const parts: string[] = []
+                        if (ids.length > 0) {
+                            const labels = ids.map(
+                                (id) =>
+                                    ci().options?.find((o) => o.id === id)
+                                        ?.label ?? id
+                            )
+                            parts.push(
+                                `User selected: ${labels.join(', ')}`
+                            )
+                        }
+                        if (custom) {
+                            parts.push(`User wrote: "${custom}"`)
+                        }
+                        resolvePlanning(
+                            props.part.toolCallId,
+                            parts.join('. ')
+                        )
+                    }}
+                />
+            )}
+        </Show>
+    )
+}
+
+/** Reactive wrapper for present_plan tool — tracks input/state changes */
+function PlanningPlanPresentation(props: { part: ToolUIPart }) {
+    const input = () => props.part.input as PlanInput | undefined
+    const isDone = () =>
+        props.part.state === 'output-available' ||
+        props.part.state === 'output-error'
+
+    return (
+        <Show
+            when={input()}
+            fallback={
+                <div class="flex items-center gap-2 text-gray-400 text-xs py-2">
+                    <Spinner size="xs" />
+                    <span>Building plan...</span>
+                </div>
+            }
+        >
+            {(pi) => (
+                <PlanSummary
+                    title={pi().title}
+                    steps={pi().steps ?? []}
+                    disabled={isDone()}
+                    onApprove={() =>
+                        resolvePlanning(
+                            props.part.toolCallId,
+                            'Plan approved by user. Proceed with execution.'
+                        )
+                    }
+                    onReject={() =>
+                        resolvePlanning(
+                            props.part.toolCallId,
+                            'User wants to change the plan. Ask what they would like to adjust.'
+                        )
+                    }
+                />
+            )}
+        </Show>
+    )
+}
 
 export function ChatMessage(
     props: Readonly<{
@@ -53,10 +153,32 @@ export function ChatMessage(
                         </span>
                     </Show>
                     <For each={segments()}>
-                        {(seg) =>
-                            seg.kind === 'tool' ? (
-                                <ToolCallIndicator part={seg.part} />
-                            ) : seg.kind === 'file' &&
+                        {(seg) => {
+                            if (seg.kind === 'tool') {
+                                const toolPart =
+                                    seg.part as unknown as ToolUIPart
+                                const toolName = getToolNameFromPart(toolPart)
+
+                                if (toolName === 'ask_clarification') {
+                                    return (
+                                        <PlanningClarification
+                                            part={toolPart}
+                                        />
+                                    )
+                                }
+
+                                if (toolName === 'present_plan') {
+                                    return (
+                                        <PlanningPlanPresentation
+                                            part={toolPart}
+                                        />
+                                    )
+                                }
+
+                                return <ToolCallIndicator part={seg.part} />
+                            }
+
+                            return seg.kind === 'file' &&
                               seg.part.mediaType?.startsWith('image/') ? (
                                 <div class="mt-1.5">
                                     <img
@@ -82,7 +204,7 @@ export function ChatMessage(
                                     }
                                 </For>
                             ) : null
-                        }
+                        }}
                     </For>
                     <Show when={props.onUndo}>
                         <div class="mt-2 pt-2 border-t border-gray-700">

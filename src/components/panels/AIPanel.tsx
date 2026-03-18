@@ -68,10 +68,9 @@ export default function AIPanel(
     const [sessions, setSessions] = createSignal<ChatSession[]>([])
     const toolErrorCounts = new Map<string, number>()
     let roundTripCount = 0
-    const [activeChatId, setActiveChatId] = makePersisted(
-        createSignal(generateChatId()),
-        { name: 'slop-ai-active-chat' }
-    )
+    const [activeChatId, setActiveChatId] = makePersisted(createSignal(''), {
+        name: 'slop-ai-active-chat',
+    })
     const [openTabs, setOpenTabs] = makePersisted(createSignal<string[]>([]), {
         name: 'slop-ai-open-tabs',
     })
@@ -133,8 +132,7 @@ export default function AIPanel(
                 const inp = t.input as Record<string, unknown> | undefined
                 const errorKey = `${name}:${(inp?.path as string) ?? ''}`
                 if (t.state === 'output-error') {
-                    const count =
-                        (toolErrorCounts.get(errorKey) ?? 0) + 1
+                    const count = (toolErrorCounts.get(errorKey) ?? 0) + 1
                     toolErrorCounts.set(errorKey, count)
                     if (count >= MAX_CONSECUTIVE_ERRORS) return false
                 } else {
@@ -202,6 +200,8 @@ export default function AIPanel(
 
     const handledToolCalls = new Set<string>()
 
+    const PLANNING_TOOLS = new Set(['ask_clarification', 'present_plan'])
+
     const hasPendingToolCalls = () => {
         const msgs = chat.messages
         for (let i = msgs.length - 1; i >= 0; i--) {
@@ -214,7 +214,10 @@ export default function AIPanel(
                         'output-available' &&
                     (part as unknown as ToolUIPart).state !== 'output-error'
                 ) {
-                    return true
+                    const name = getToolNameFromPart(
+                        part as unknown as ToolUIPart
+                    )
+                    if (!PLANNING_TOOLS.has(name)) return true
                 }
             }
             break
@@ -246,23 +249,35 @@ export default function AIPanel(
         setSessions(allSessions)
 
         let id = activeChatId()
-        if (!id) {
-            id = generateChatId()
-            setActiveChatId(id)
+
+        const currentTabs = openTabs()
+        const dedupedTabs = [...new Set(currentTabs.filter(Boolean))]
+
+        let resolvedTabs = dedupedTabs
+        if (resolvedTabs.length === 0) {
+            if (id) {
+                resolvedTabs = [id]
+            } else if (allSessions.length > 0) {
+                resolvedTabs = [allSessions[0].id]
+            } else {
+                resolvedTabs = [generateChatId()]
+            }
         }
 
-        setOpenTabs((tabs) => {
-            const next = tabs.length > 0 ? [...tabs] : [id!]
-            if (!next.includes(id!)) {
-                next.unshift(id!)
-            }
-            return next
-        })
+        if (!id || !resolvedTabs.includes(id)) {
+            id = resolvedTabs[0]
+        }
+
+        setOpenTabs(resolvedTabs)
+        setActiveChatId(id)
 
         const session = allSessions.find((s) => s.id === id)
         if (session) {
             chat.setMessages(session.messages)
             restoreSubagentStates(session.subagentStates ?? {})
+        } else {
+            chat.setMessages([])
+            restoreSubagentStates({})
         }
 
         setShouldAutoScroll(true)
@@ -402,10 +417,13 @@ export default function AIPanel(
         )
 
         const session = await getSession(sessionId)
+        setActiveChatId(sessionId)
         if (session) {
-            setActiveChatId(sessionId)
             chat.setMessages(session.messages)
             restoreSubagentStates(session.subagentStates ?? {})
+        } else {
+            chat.setMessages([])
+            restoreSubagentStates({})
         }
         checkpoints.clear()
         setCheckpointTick((t) => t + 1)
@@ -534,8 +552,8 @@ export default function AIPanel(
                     {view() === 'history'
                         ? 'Chat History'
                         : view() === 'settings'
-                          ? 'Settings'
-                          : 'AI Assistant'}
+                        ? 'Settings'
+                        : 'AI Assistant'}
                 </span>
                 <div class="flex items-center gap-0.5 shrink-0">
                     <button
@@ -913,7 +931,9 @@ export default function AIPanel(
                                 <Show when={pendingFiles()?.length}>
                                     <span class="text-blue-400">
                                         {pendingFiles()!.length} image
-                                        {pendingFiles()!.length === 1 ? '' : 's'}
+                                        {pendingFiles()!.length === 1
+                                            ? ''
+                                            : 's'}
                                         attached
                                     </span>
                                 </Show>

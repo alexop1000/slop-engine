@@ -1,4 +1,5 @@
 import type { Accessor, Setter } from 'solid-js'
+import { createPlanningPromise } from './planningStore'
 import type { Scene, Node } from 'babylonjs'
 import type { ModelSettings } from '../../../modelSettingsStore'
 import {
@@ -232,6 +233,158 @@ const MODEL_EXT = ['.glb', '.gltf', '.obj']
 const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tga']
 const PREFAB_EXT = '.prefab.json'
 const MAX_AGENT_STEPS = 20
+const MAX_AUTONOMOUS_TEST_STEPS = 100
+const MAX_AUTONOMOUS_TEST_SECONDS = 30
+
+type AutonomousInputStep =
+    | { action: 'key_down'; key: string }
+    | { action: 'key_up'; key: string }
+    | { action: 'hold_key'; key: string; seconds: number }
+    | { action: 'wait'; seconds: number }
+    | { action: 'mouse_move'; at: [number, number] }
+    | { action: 'mouse_down'; button?: number; at?: [number, number] }
+    | { action: 'mouse_up'; button?: number; at?: [number, number] }
+    | { action: 'click'; button?: number; at: [number, number] }
+
+type AutonomousAssertion = {
+    checkpoint: 'before' | 'during' | 'after'
+    duringIndex?: number
+    node: string
+    path?: string
+    comparator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'approx'
+    expected: string | number | boolean | null
+    tolerance?: number
+}
+
+type AutonomousSnapshot = {
+    simulation: 'running' | 'stopped'
+    nodes: unknown[]
+}
+
+type AutonomousCapturedSnapshot = {
+    atSeconds: number
+    snapshot: AutonomousSnapshot
+}
+
+function clamp01(value: number): number {
+    if (!Number.isFinite(value)) return 0
+    if (value < 0) return 0
+    if (value > 1) return 1
+    return value
+}
+
+function round3(value: number): number {
+    return Math.round(value * 1000) / 1000
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function findNodeInSnapshot(
+    nodes: unknown[],
+    nodeName: string
+): Record<string, unknown> | undefined {
+    const stack = [...nodes]
+    while (stack.length > 0) {
+        const current = stack.pop()
+        if (!isRecord(current)) continue
+        if (current.name === nodeName) return current
+        const children = current.children
+        if (Array.isArray(children)) {
+            for (const child of children) stack.push(child)
+        }
+    }
+    return undefined
+}
+
+function resolvePathValue(base: unknown, path?: string): unknown {
+    if (!path?.trim()) return base
+    const tokens = path.match(/[^.[\]]+|\[(\d+)\]/g)
+    if (!tokens) return undefined
+
+    let current: unknown = base
+    for (const token of tokens) {
+        if (current === null || current === undefined) return undefined
+
+        if (token.startsWith('[') && token.endsWith(']')) {
+            const raw = token.slice(1, -1)
+            const index = Number(raw)
+            if (!Array.isArray(current) || !Number.isInteger(index)) {
+                return undefined
+            }
+            current = current[index]
+            continue
+        }
+
+        if (!isRecord(current)) return undefined
+        current = current[token]
+    }
+    return current
+}
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+    if (typeof left === 'number' && typeof right === 'number') {
+        return Object.is(left, right)
+    }
+    if (left === right) return true
+    return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function compareAssertion(
+    comparator: AutonomousAssertion['comparator'],
+    actual: unknown,
+    expected: unknown,
+    tolerance?: number
+): { pass: boolean; reason?: string } {
+    switch (comparator) {
+        case 'eq': {
+            const pass = valuesEqual(actual, expected)
+            return pass
+                ? { pass: true }
+                : { pass: false, reason: 'Values are not equal' }
+        }
+        case 'neq': {
+            const pass = !valuesEqual(actual, expected)
+            return pass
+                ? { pass: true }
+                : { pass: false, reason: 'Values are equal' }
+        }
+        case 'gt':
+        case 'gte':
+        case 'lt':
+        case 'lte':
+        case 'approx': {
+            if (typeof actual !== 'number' || typeof expected !== 'number') {
+                return {
+                    pass: false,
+                    reason: 'Comparator requires numeric actual and expected values',
+                }
+            }
+
+            if (comparator === 'gt') return { pass: actual > expected }
+            if (comparator === 'gte') return { pass: actual >= expected }
+            if (comparator === 'lt') return { pass: actual < expected }
+            if (comparator === 'lte') return { pass: actual <= expected }
+
+            const epsilon =
+                typeof tolerance === 'number' && tolerance >= 0
+                    ? tolerance
+                    : 0.001
+            return {
+                pass: Math.abs(actual - expected) <= epsilon,
+                reason:
+                    Math.abs(actual - expected) <= epsilon
+                        ? undefined
+                        : `Difference ${Math.abs(
+                              actual - expected
+                          )} exceeds tolerance ${epsilon}`,
+            }
+        }
+        default:
+            return { pass: false, reason: 'Unsupported comparator' }
+    }
+}
 
 async function typeCheckContent(content: string): Promise<string[]> {
     try {
@@ -992,6 +1145,421 @@ export function createToolExecutor(
         return JSON.stringify(formatted, null, 2)
     }
 
+    const executeRunAutonomousTest = async (args: {
+        inputs: AutonomousInputStep[]
+        checks?: {
+            before?: boolean
+            duringSeconds?: number[]
+            after?: boolean
+        }
+        assertions?: AutonomousAssertion[]
+    }): Promise<string> => {
+        const scene = ctx.scene()
+        if (!scene) throw new Error('Scene not initialized')
+
+        const steps = Array.isArray(args.inputs) ? args.inputs : []
+        if (steps.length > MAX_AUTONOMOUS_TEST_STEPS) {
+            throw new Error(
+                `Too many input steps (${steps.length}). Maximum is ${MAX_AUTONOMOUS_TEST_STEPS}.`
+            )
+        }
+
+        const estimatedSeconds = steps.reduce((sum, step) => {
+            if (step.action === 'wait' || step.action === 'hold_key') {
+                const seconds = Number(step.seconds)
+                if (!Number.isFinite(seconds) || seconds < 0) return sum
+                return sum + seconds
+            }
+            return sum
+        }, 0)
+        if (estimatedSeconds > MAX_AUTONOMOUS_TEST_SECONDS) {
+            throw new Error(
+                `Estimated test duration ${round3(
+                    estimatedSeconds
+                )}s exceeds max ${MAX_AUTONOMOUS_TEST_SECONDS}s.`
+            )
+        }
+
+        const checkConfig = args.checks ?? {}
+        const captureBefore = checkConfig.before ?? true
+        const captureAfter = checkConfig.after ?? true
+        const duringTargets = [...(checkConfig.duringSeconds ?? [])]
+            .map(Number)
+            .filter((value) => Number.isFinite(value) && value >= 0)
+            .map((value) => round3(value))
+            .sort((left, right) => left - right)
+            .filter(
+                (value, index, all) => index === 0 || value !== all[index - 1]
+            )
+
+        const getCanvas = (): HTMLCanvasElement => {
+            const element = document.getElementById('canvas')
+            if (!element || !(element instanceof HTMLCanvasElement)) {
+                throw new Error('Canvas element not found')
+            }
+            return element
+        }
+
+        const captureSnapshot = (): AutonomousSnapshot => ({
+            simulation: ctx.isPlaying() ? 'running' : 'stopped',
+            nodes: getSceneSnapshot(scene),
+        })
+
+        const waitSeconds = async (seconds: number): Promise<void> => {
+            if (!Number.isFinite(seconds) || seconds <= 0) return
+            await new Promise<void>((resolve) => {
+                setTimeout(resolve, seconds * 1000)
+            })
+        }
+
+        const waitForFrame = async (): Promise<void> => {
+            await new Promise<void>((resolve) => {
+                requestAnimationFrame(() => resolve())
+            })
+        }
+
+        let elapsedSeconds = 0
+        let beforeSnapshot: AutonomousSnapshot | null = null
+        const duringSnapshots: AutonomousCapturedSnapshot[] = []
+        let afterSnapshot: AutonomousSnapshot | null = null
+        let nextDuringIndex = 0
+
+        const pressedKeys = new Set<string>()
+        const pressedButtons = new Set<number>()
+        let lastPointerX = 0
+        let lastPointerY = 0
+        let startedSimulationInTool = false
+
+        const pointFromNormalized = (
+            canvas: HTMLCanvasElement,
+            at?: [number, number]
+        ): { clientX: number; clientY: number } => {
+            const rect = canvas.getBoundingClientRect()
+            const x = at ? clamp01(Number(at[0])) : 0.5
+            const y = at ? clamp01(Number(at[1])) : 0.5
+            return {
+                clientX: rect.left + rect.width * x,
+                clientY: rect.top + rect.height * y,
+            }
+        }
+
+        const buttonMask = (): number => {
+            let mask = 0
+            for (const button of pressedButtons) {
+                if (button === 0) mask |= 1
+                else if (button === 1) mask |= 4
+                else if (button === 2) mask |= 2
+            }
+            return mask
+        }
+
+        const dispatchKeyDown = (code: string): void => {
+            if (!code) return
+            const event = new KeyboardEvent('keydown', {
+                bubbles: true,
+                code,
+                key: code,
+            })
+            globalThis.dispatchEvent(event)
+            pressedKeys.add(code)
+        }
+
+        const dispatchKeyUp = (code: string): void => {
+            if (!code) return
+            const event = new KeyboardEvent('keyup', {
+                bubbles: true,
+                code,
+                key: code,
+            })
+            globalThis.dispatchEvent(event)
+            pressedKeys.delete(code)
+        }
+
+        const dispatchPointerEvent = (
+            canvas: HTMLCanvasElement,
+            type: 'pointermove' | 'pointerdown' | 'pointerup',
+            payload: {
+                clientX: number
+                clientY: number
+                button: number
+                movementX?: number
+                movementY?: number
+            }
+        ): void => {
+            const pointerEvent = new PointerEvent(type, {
+                bubbles: true,
+                pointerType: 'mouse',
+                pointerId: 1,
+                isPrimary: true,
+                clientX: payload.clientX,
+                clientY: payload.clientY,
+                button: payload.button,
+                buttons: buttonMask(),
+                movementX: payload.movementX ?? 0,
+                movementY: payload.movementY ?? 0,
+            })
+            canvas.dispatchEvent(pointerEvent)
+        }
+
+        const dispatchMove = (
+            canvas: HTMLCanvasElement,
+            at: [number, number]
+        ): void => {
+            const point = pointFromNormalized(canvas, at)
+            const movementX = point.clientX - lastPointerX
+            const movementY = point.clientY - lastPointerY
+            lastPointerX = point.clientX
+            lastPointerY = point.clientY
+            dispatchPointerEvent(canvas, 'pointermove', {
+                clientX: point.clientX,
+                clientY: point.clientY,
+                button: -1,
+                movementX,
+                movementY,
+            })
+        }
+
+        const dispatchMouseDown = (
+            canvas: HTMLCanvasElement,
+            button: number,
+            at?: [number, number]
+        ): void => {
+            if (at) dispatchMove(canvas, at)
+            pressedButtons.add(button)
+            dispatchPointerEvent(canvas, 'pointerdown', {
+                clientX: lastPointerX,
+                clientY: lastPointerY,
+                button,
+            })
+        }
+
+        const dispatchMouseUp = (
+            canvas: HTMLCanvasElement,
+            button: number,
+            at?: [number, number]
+        ): void => {
+            if (at) dispatchMove(canvas, at)
+            dispatchPointerEvent(canvas, 'pointerup', {
+                clientX: lastPointerX,
+                clientY: lastPointerY,
+                button,
+            })
+            pressedButtons.delete(button)
+        }
+
+        const captureDueDuringSnapshots = (): void => {
+            const epsilon = 0.0001
+            while (
+                nextDuringIndex < duringTargets.length &&
+                duringTargets[nextDuringIndex] <= elapsedSeconds + epsilon
+            ) {
+                duringSnapshots.push({
+                    atSeconds: duringTargets[nextDuringIndex],
+                    snapshot: captureSnapshot(),
+                })
+                nextDuringIndex++
+            }
+        }
+
+        const waitWithCheckpoints = async (seconds: number): Promise<void> => {
+            const clampedSeconds = Math.max(0, Number(seconds) || 0)
+            if (clampedSeconds <= 0) {
+                captureDueDuringSnapshots()
+                return
+            }
+
+            let remainingSeconds = clampedSeconds
+            while (remainingSeconds > 0.0001) {
+                const nextTarget = duringTargets[nextDuringIndex]
+                if (
+                    typeof nextTarget === 'number' &&
+                    nextTarget <= elapsedSeconds + remainingSeconds + 0.0001
+                ) {
+                    const segment = Math.max(0, nextTarget - elapsedSeconds)
+                    if (segment > 0) {
+                        await waitSeconds(segment)
+                        elapsedSeconds += segment
+                        remainingSeconds -= segment
+                    }
+                    captureDueDuringSnapshots()
+                } else {
+                    await waitSeconds(remainingSeconds)
+                    elapsedSeconds += remainingSeconds
+                    remainingSeconds = 0
+                }
+            }
+            elapsedSeconds = round3(elapsedSeconds)
+            captureDueDuringSnapshots()
+        }
+
+        try {
+            if (!ctx.isPlaying()) {
+                await ctx.requestPlay()
+                startedSimulationInTool = true
+                await waitForFrame()
+            }
+
+            if (captureBefore) {
+                beforeSnapshot = captureSnapshot()
+            }
+
+            const canvas = getCanvas()
+            const startPoint = pointFromNormalized(canvas, [0.5, 0.5])
+            lastPointerX = startPoint.clientX
+            lastPointerY = startPoint.clientY
+
+            captureDueDuringSnapshots()
+
+            for (const step of steps) {
+                switch (step.action) {
+                    case 'key_down':
+                        dispatchKeyDown(step.key)
+                        break
+                    case 'key_up':
+                        dispatchKeyUp(step.key)
+                        break
+                    case 'hold_key': {
+                        dispatchKeyDown(step.key)
+                        await waitWithCheckpoints(step.seconds)
+                        dispatchKeyUp(step.key)
+                        break
+                    }
+                    case 'wait':
+                        await waitWithCheckpoints(step.seconds)
+                        break
+                    case 'mouse_move':
+                        dispatchMove(canvas, step.at)
+                        break
+                    case 'mouse_down':
+                        dispatchMouseDown(canvas, step.button ?? 0, step.at)
+                        break
+                    case 'mouse_up':
+                        dispatchMouseUp(canvas, step.button ?? 0, step.at)
+                        break
+                    case 'click':
+                        dispatchMouseDown(canvas, step.button ?? 0, step.at)
+                        await waitForFrame()
+                        dispatchMouseUp(canvas, step.button ?? 0, step.at)
+                        break
+                }
+                await waitForFrame()
+                captureDueDuringSnapshots()
+            }
+
+            if (captureAfter) {
+                afterSnapshot = captureSnapshot()
+            }
+
+            const assertions = Array.isArray(args.assertions)
+                ? args.assertions
+                : []
+
+            const assertionResults = assertions.map((assertion, index) => {
+                const checkpointSnapshot =
+                    assertion.checkpoint === 'before'
+                        ? beforeSnapshot
+                        : assertion.checkpoint === 'after'
+                        ? afterSnapshot
+                        : duringSnapshots[
+                              Number.isInteger(assertion.duringIndex)
+                                  ? (assertion.duringIndex as number)
+                                  : 0
+                          ]?.snapshot ?? null
+
+                if (!checkpointSnapshot) {
+                    return {
+                        index,
+                        pass: false,
+                        reason: `Checkpoint ${assertion.checkpoint} is unavailable`,
+                        assertion,
+                    }
+                }
+
+                const node = findNodeInSnapshot(
+                    checkpointSnapshot.nodes,
+                    assertion.node
+                )
+                if (!node) {
+                    return {
+                        index,
+                        pass: false,
+                        reason: `Node "${assertion.node}" not found`,
+                        assertion,
+                    }
+                }
+
+                const actual = resolvePathValue(node, assertion.path)
+                if (actual === undefined) {
+                    return {
+                        index,
+                        pass: false,
+                        reason: `Path "${assertion.path ?? ''}" not found`,
+                        assertion,
+                    }
+                }
+
+                const comparison = compareAssertion(
+                    assertion.comparator,
+                    actual,
+                    assertion.expected,
+                    assertion.tolerance
+                )
+
+                return {
+                    index,
+                    pass: comparison.pass,
+                    reason: comparison.reason,
+                    assertion,
+                    actual,
+                }
+            })
+
+            const passedAssertions = assertionResults.filter(
+                (r) => r.pass
+            ).length
+            const failedAssertions = assertionResults.length - passedAssertions
+
+            return JSON.stringify(
+                {
+                    summary: {
+                        startedSimulationInTool,
+                        steps: steps.length,
+                        elapsedSeconds: round3(elapsedSeconds),
+                        assertions: {
+                            passed: passedAssertions,
+                            failed: failedAssertions,
+                            total: assertionResults.length,
+                        },
+                    },
+                    snapshots: {
+                        before: beforeSnapshot,
+                        during: duringSnapshots,
+                        after: afterSnapshot,
+                    },
+                    assertions: assertionResults,
+                },
+                null,
+                2
+            )
+        } finally {
+            if (ctx.isPlaying()) {
+                const canvas = document.getElementById('canvas')
+                if (canvas instanceof HTMLCanvasElement) {
+                    for (const key of pressedKeys) {
+                        dispatchKeyUp(key)
+                    }
+                    for (const button of pressedButtons) {
+                        dispatchMouseUp(canvas, button)
+                    }
+                }
+            }
+
+            if (startedSimulationInTool && ctx.isPlaying()) {
+                await ctx.requestStop()
+            }
+        }
+    }
+
     const executeLookupScriptingApi = async (args: {
         topic: string
     }): Promise<string> => {
@@ -1288,8 +1856,24 @@ export function createToolExecutor(
                 return executeSleep(input as { seconds: number })
             case 'get_console_logs':
                 return executeGetConsoleLogs()
+            case 'run_autonomous_test':
+                return executeRunAutonomousTest(
+                    input as {
+                        inputs: AutonomousInputStep[]
+                        checks?: {
+                            before?: boolean
+                            duringSeconds?: number[]
+                            after?: boolean
+                        }
+                        assertions?: AutonomousAssertion[]
+                    }
+                )
             case 'lookup_scripting_api':
                 return executeLookupScriptingApi(input as { topic: string })
+            case 'ask_clarification':
+                return createPlanningPromise(toolCallId ?? '')
+            case 'present_plan':
+                return createPlanningPromise(toolCallId ?? '')
             case 'spawn_agent':
                 return executeSpawnAgent(
                     input as {

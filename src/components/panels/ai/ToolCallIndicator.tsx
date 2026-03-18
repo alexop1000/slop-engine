@@ -144,6 +144,13 @@ function toolLabel(
             if (error) return 'Failed to read console'
             if (done) return 'Read console logs'
             return 'Reading console...'
+        case 'run_autonomous_test': {
+            const inputs = inp?.inputs as unknown[] | undefined
+            const count = inputs?.length ?? 0
+            if (error) return 'Autonomous test failed'
+            if (done) return `Autonomous test complete (${count} steps)`
+            return `Running autonomous test (${count} steps)...`
+        }
         case 'generate_image':
             if (error) return 'Image generation failed'
             if (done) return 'Generated image'
@@ -155,12 +162,12 @@ function toolLabel(
                 agentType === 'script'
                     ? 'Script Writer'
                     : agentType === 'scene'
-                      ? 'Scene Builder'
-                      : agentType === 'ui'
-                        ? 'UI Builder'
-                        : agentType === 'asset'
-                          ? 'Asset Generator'
-                          : 'Agent'
+                    ? 'Scene Builder'
+                    : agentType === 'ui'
+                    ? 'UI Builder'
+                    : agentType === 'asset'
+                    ? 'Asset Generator'
+                    : 'Agent'
             const short = task
                 ? task.length > 50
                     ? task.slice(0, 47) + '...'

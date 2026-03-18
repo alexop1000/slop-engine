@@ -516,6 +516,181 @@ export const getConsoleLogsTool = {
     }),
 }
 
+export const runAutonomousTestTool = {
+    description:
+        'Run an autonomous gameplay test in simulation by executing timed inputs (keys/mouse), capturing scene snapshots before/during/after, and evaluating assertions.',
+    inputSchema: jsonSchema<{
+        inputs: Array<
+            | { action: 'key_down'; key: string }
+            | { action: 'key_up'; key: string }
+            | { action: 'hold_key'; key: string; seconds: number }
+            | { action: 'wait'; seconds: number }
+            | {
+                  action: 'mouse_move'
+                  at: [number, number]
+              }
+            | {
+                  action: 'mouse_down'
+                  button?: number
+                  at?: [number, number]
+              }
+            | {
+                  action: 'mouse_up'
+                  button?: number
+                  at?: [number, number]
+              }
+            | {
+                  action: 'click'
+                  button?: number
+                  at: [number, number]
+              }
+        >
+        checks?: {
+            before?: boolean
+            duringSeconds?: number[]
+            after?: boolean
+        }
+        assertions?: Array<{
+            checkpoint: 'before' | 'during' | 'after'
+            duringIndex?: number
+            node: string
+            path?: string
+            comparator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'approx'
+            expected: string | number | boolean | null
+            tolerance?: number
+        }>
+    }>({
+        type: 'object',
+        properties: {
+            inputs: {
+                type: 'array',
+                description:
+                    'Timed input steps to run. Coordinates are normalized viewport [x,y] in [0..1]. Example: key_down(KeyW), wait(2.5), key_up(KeyW), click(at:[0.5,0.5]).',
+                items: {
+                    type: 'object',
+                    properties: {
+                        action: {
+                            type: 'string',
+                            enum: [
+                                'key_down',
+                                'key_up',
+                                'hold_key',
+                                'wait',
+                                'mouse_move',
+                                'mouse_down',
+                                'mouse_up',
+                                'click',
+                            ],
+                        },
+                        key: {
+                            type: 'string',
+                            description:
+                                'Keyboard code like KeyW, Space, ArrowLeft.',
+                        },
+                        seconds: {
+                            type: 'number',
+                            description:
+                                'Duration in seconds for wait/hold_key.',
+                        },
+                        at: {
+                            type: 'array',
+                            items: { type: 'number' },
+                            description:
+                                'Normalized viewport coordinate [x,y], each in [0..1].',
+                        },
+                        button: {
+                            type: 'number',
+                            description:
+                                'Mouse button: 0 left, 1 middle, 2 right. Defaults to 0.',
+                        },
+                    },
+                    required: ['action'],
+                    additionalProperties: true,
+                },
+            },
+            checks: {
+                type: 'object',
+                properties: {
+                    before: {
+                        type: 'boolean',
+                        description:
+                            'Capture snapshot before inputs run. Default true.',
+                    },
+                    duringSeconds: {
+                        type: 'array',
+                        items: { type: 'number' },
+                        description:
+                            'Capture snapshots at these elapsed times (seconds) after test starts.',
+                    },
+                    after: {
+                        type: 'boolean',
+                        description:
+                            'Capture snapshot after all inputs finish. Default true.',
+                    },
+                },
+                additionalProperties: false,
+            },
+            assertions: {
+                type: 'array',
+                description:
+                    'Optional assertions against snapshot values. Path examples: position[0], enabled, intensity.',
+                items: {
+                    type: 'object',
+                    properties: {
+                        checkpoint: {
+                            type: 'string',
+                            enum: ['before', 'during', 'after'],
+                        },
+                        duringIndex: {
+                            type: 'number',
+                            description:
+                                'Required when checkpoint=during. Uses index into captured during snapshots.',
+                        },
+                        node: {
+                            type: 'string',
+                            description: 'Node name to inspect.',
+                        },
+                        path: {
+                            type: 'string',
+                            description:
+                                'Property path on the node snapshot (example: position[0]).',
+                        },
+                        comparator: {
+                            type: 'string',
+                            enum: [
+                                'eq',
+                                'neq',
+                                'gt',
+                                'gte',
+                                'lt',
+                                'lte',
+                                'approx',
+                            ],
+                        },
+                        expected: {
+                            type: [
+                                'string',
+                                'number',
+                                'boolean',
+                                'null',
+                            ] as unknown as 'string',
+                        },
+                        tolerance: {
+                            type: 'number',
+                            description:
+                                'Only for approx comparator. Default 0.001.',
+                        },
+                    },
+                    required: ['checkpoint', 'node', 'comparator', 'expected'],
+                    additionalProperties: false,
+                },
+            },
+        },
+        required: ['inputs'],
+        additionalProperties: false,
+    }),
+}
+
 export const bulkSceneTool = {
     description:
         'Execute multiple scene operations in one call. Use this for complex scene construction (building a house, landscape, etc). Operations run sequentially so later ones can reference nodes created by earlier ones. ALWAYS give explicit names to nodes you will reference later. Supported actions: add_mesh, add_light, update_node, delete_node, create_group, set_parent. REQUIRED params per action: add_mesh→type; add_light→type; update_node/delete_node/create_group→name; set_parent→node,parent. Never omit these.',
@@ -823,6 +998,123 @@ export const createAssetFolderTool = {
             },
         },
         required: ['path'],
+    }),
+}
+
+export const askClarificationTool = {
+    description:
+        'Ask the user a clarifying question with visual choice options. Use during planning phase to understand what the user wants before building. Each option is shown as a clickable card.',
+    inputSchema: jsonSchema<{
+        question: string
+        options: Array<{
+            id: string
+            label: string
+            description: string
+            icon?: string
+        }>
+        allowCustom?: boolean
+        multiSelect?: boolean
+    }>({
+        type: 'object',
+        properties: {
+            question: {
+                type: 'string',
+                description: 'The question to ask the user.',
+            },
+            options: {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    properties: {
+                        id: {
+                            type: 'string',
+                            description: 'Unique identifier for this option.',
+                        },
+                        label: {
+                            type: 'string',
+                            description:
+                                'Short label for the option (2-5 words).',
+                        },
+                        description: {
+                            type: 'string',
+                            description:
+                                'Longer explanation of what this option means (1-2 sentences).',
+                        },
+                        icon: {
+                            type: 'string',
+                            enum: [
+                                'palette',
+                                'gamepad',
+                                'zap',
+                                'layout',
+                                'sparkles',
+                                'cube',
+                                'eye',
+                                'music',
+                            ],
+                            description:
+                                'Icon hint: palette (art/style), gamepad (gaming), zap (speed/action), layout (structure), sparkles (effects), cube (3D objects), eye (camera/view), music (audio).',
+                        },
+                    },
+                    required: ['id', 'label', 'description'],
+                },
+                description: 'Array of 2-5 choice options to show the user.',
+            },
+            allowCustom: {
+                type: 'boolean',
+                description:
+                    'Whether the user can type a custom answer instead. Default true.',
+            },
+            multiSelect: {
+                type: 'boolean',
+                description:
+                    'Whether the user can select multiple options. Default false.',
+            },
+        },
+        required: ['question', 'options'],
+    }),
+}
+
+export const presentPlanTool = {
+    description:
+        'Present a build plan to the user for approval before executing. Shows the planned steps with agent assignments. Call this after gathering enough information from ask_clarification.',
+    inputSchema: jsonSchema<{
+        title: string
+        steps: Array<{
+            agent: 'scene' | 'script' | 'ui' | 'asset'
+            description: string
+        }>
+    }>({
+        type: 'object',
+        properties: {
+            title: {
+                type: 'string',
+                description:
+                    'Short title for the plan (e.g. "Tetris Game Plan").',
+            },
+            steps: {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    properties: {
+                        agent: {
+                            type: 'string',
+                            enum: ['scene', 'script', 'ui', 'asset'],
+                            description:
+                                'Which specialist agent handles this step.',
+                        },
+                        description: {
+                            type: 'string',
+                            description:
+                                'What this step will build, in plain language.',
+                        },
+                    },
+                    required: ['agent', 'description'],
+                },
+                description: 'Ordered list of build steps.',
+            },
+        },
+        required: ['title', 'steps'],
     }),
 }
 

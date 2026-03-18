@@ -27,7 +27,10 @@ import {
     stopSimulationTool,
     sleepTool,
     getConsoleLogsTool,
+    runAutonomousTestTool,
     spawnAgentTool,
+    askClarificationTool,
+    presentPlanTool,
     generateImageTool,
     createScriptTool,
     listScriptsTool,
@@ -88,8 +91,7 @@ function getModel(
     if (settings?.provider === 'openrouter') {
         const openrouter = createOpenRouter({
             apiKey:
-                credentials?.openrouterApiKey?.trim() ||
-                env.OPENROUTER_API_KEY,
+                credentials?.openrouterApiKey?.trim() || env.OPENROUTER_API_KEY,
         })
         return openrouter.chat(modelId)
     }
@@ -244,7 +246,10 @@ export function chatApiPlugin(): Plugin {
                             stop_simulation: stopSimulationTool,
                             sleep: sleepTool,
                             get_console_logs: getConsoleLogsTool,
+                            run_autonomous_test: runAutonomousTestTool,
                             spawn_agent: spawnAgentTool,
+                            ask_clarification: askClarificationTool,
+                            present_plan: presentPlanTool,
                         },
                         messages: modelMessages,
                     })
@@ -454,6 +459,7 @@ export function chatApiPlugin(): Plugin {
                                   stop_simulation: stopSimulationTool,
                                   sleep: sleepTool,
                                   get_console_logs: getConsoleLogsTool,
+                                  run_autonomous_test: runAutonomousTestTool,
                               }
                             : {
                                   get_scene: getSceneTool,

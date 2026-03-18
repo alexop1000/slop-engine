@@ -34,3 +34,29 @@ export type MessageSegment =
     | { kind: 'text'; text: string }
     | { kind: 'tool'; part: ToolUIPart }
     | { kind: 'file'; part: FileUIPart }
+
+// ── Planning mode types ─────────────────────────────────────────────
+
+export interface ClarificationOption {
+    id: string
+    label: string
+    description: string
+    icon?: string
+}
+
+export interface ClarificationInput {
+    question: string
+    options: ClarificationOption[]
+    allowCustom?: boolean
+    multiSelect?: boolean
+}
+
+export interface PlanStep {
+    agent: 'scene' | 'script' | 'ui' | 'asset'
+    description: string
+}
+
+export interface PlanInput {
+    title: string
+    steps: PlanStep[]
+}
