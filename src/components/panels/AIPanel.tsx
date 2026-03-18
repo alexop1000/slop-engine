@@ -72,6 +72,9 @@ export default function AIPanel(
         createSignal(generateChatId()),
         { name: 'slop-ai-active-chat' }
     )
+    const [openTabs, setOpenTabs] = makePersisted(createSignal<string[]>([]), {
+        name: 'slop-ai-open-tabs',
+    })
 
     // Checkpoint system: map from user message index to full checkpoint
     const checkpoints = new Map<
@@ -242,17 +245,24 @@ export default function AIPanel(
         const allSessions = await getAllSessions()
         setSessions(allSessions)
 
-        const id = activeChatId()
-        if (id) {
-            const session = allSessions.find((s) => s.id === id)
-            if (session) {
-                chat.setMessages(session.messages)
-                restoreSubagentStates(session.subagentStates ?? {})
-            }
+        let id = activeChatId()
+        if (!id) {
+            id = generateChatId()
+            setActiveChatId(id)
         }
 
-        if (!activeChatId()) {
-            setActiveChatId(generateChatId())
+        setOpenTabs((tabs) => {
+            const next = tabs.length > 0 ? [...tabs] : [id!]
+            if (!next.includes(id!)) {
+                next.unshift(id!)
+            }
+            return next
+        })
+
+        const session = allSessions.find((s) => s.id === id)
+        if (session) {
+            chat.setMessages(session.messages)
+            restoreSubagentStates(session.subagentStates ?? {})
         }
 
         setShouldAutoScroll(true)
@@ -363,6 +373,7 @@ export default function AIPanel(
         }
 
         const newId = generateChatId()
+        setOpenTabs((tabs) => [newId, ...tabs])
         setActiveChatId(newId)
         chat.setMessages([])
         restoreSubagentStates({})
@@ -386,6 +397,10 @@ export default function AIPanel(
             await saveCurrentChat()
         }
 
+        setOpenTabs((tabs) =>
+            tabs.includes(sessionId) ? tabs : [sessionId, ...tabs]
+        )
+
         const session = await getSession(sessionId)
         if (session) {
             setActiveChatId(sessionId)
@@ -400,9 +415,31 @@ export default function AIPanel(
         inputRef?.focus()
     }
 
+    const switchToTab = (tabId: string) => {
+        if (tabId === activeChatId()) return
+        switchToChat(tabId)
+    }
+
+    const closeTab = async (tabId: string, e: MouseEvent) => {
+        e.stopPropagation()
+        const currentTabs = openTabs()
+        const tabs = currentTabs.filter((id) => id !== tabId)
+        if (tabs.length === 0) {
+            await startNewChat()
+            return
+        }
+        setOpenTabs(tabs)
+        if (tabId === activeChatId()) {
+            const idx = currentTabs.indexOf(tabId)
+            const nextIdx = Math.min(idx, tabs.length - 1)
+            await switchToChat(tabs[nextIdx])
+        }
+    }
+
     const handleDeleteChat = async (sessionId: string) => {
         await deleteSession(sessionId)
         await refreshSessions()
+        setOpenTabs((tabs) => tabs.filter((id) => id !== sessionId))
 
         if (sessionId === activeChatId()) {
             const remaining = sessions()
@@ -410,6 +447,7 @@ export default function AIPanel(
                 await switchToChat(remaining[0].id)
             } else {
                 const newId = generateChatId()
+                setOpenTabs([newId])
                 setActiveChatId(newId)
                 chat.setMessages([])
             }
@@ -461,6 +499,14 @@ export default function AIPanel(
         }
     }
 
+    const getTabTitle = (tabId: string) => {
+        if (tabId === activeChatId()) {
+            const t = titleFromMessages(chat.messages)
+            return t || 'New Chat'
+        }
+        return sessions().find((s) => s.id === tabId)?.title ?? 'New Chat'
+    }
+
     const syncInputHeight = () => {
         const el = inputRef
         if (!el) return
@@ -492,28 +538,6 @@ export default function AIPanel(
                           : 'AI Assistant'}
                 </span>
                 <div class="flex items-center gap-0.5 shrink-0">
-                    <Show when={view() === 'chat'}>
-                        <button
-                            class="p-1 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 transition-colors"
-                            onClick={startNewChat}
-                            title="New Chat"
-                            type="button"
-                        >
-                            <svg
-                                class="w-3.5 h-3.5"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                stroke-width="2"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    d="M12 4.5v15m7.5-7.5h-15"
-                                />
-                            </svg>
-                        </button>
-                    </Show>
                     <button
                         class={`p-1 rounded transition-colors ${
                             view() === 'history'
@@ -628,6 +652,64 @@ export default function AIPanel(
             </Show>
 
             <Show when={view() === 'chat'}>
+                <div class="flex items-center gap-0.5 shrink-0 border-b border-gray-700/60 overflow-x-auto">
+                    <For each={openTabs()}>
+                        {(tabId) => (
+                            <div
+                                class={`group flex items-center gap-1 px-2 py-1.5 rounded-t text-xs cursor-pointer border-b-2 transition-colors min-w-0 max-w-28 ${
+                                    tabId === activeChatId()
+                                        ? 'bg-gray-800/80 border-blue-500 text-gray-100'
+                                        : 'border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'
+                                }`}
+                                onClick={() => switchToTab(tabId)}
+                            >
+                                <span class="truncate flex-1">
+                                    {getTabTitle(tabId)}
+                                </span>
+                                <button
+                                    class="p-0.5 rounded text-gray-500 hover:text-gray-200 hover:bg-gray-700/50 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                    onClick={(e) => closeTab(tabId, e)}
+                                    title="Close tab"
+                                    type="button"
+                                >
+                                    <svg
+                                        class="w-3 h-3"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            d="M6 18L18 6M6 6l12 12"
+                                        />
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
+                    </For>
+                    <button
+                        class="p-1.5 rounded text-gray-500 hover:text-gray-200 hover:bg-gray-700/50 transition-colors shrink-0"
+                        onClick={startNewChat}
+                        title="New Chat"
+                        type="button"
+                    >
+                        <svg
+                            class="w-3.5 h-3.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                d="M12 4.5v15m7.5-7.5h-15"
+                            />
+                        </svg>
+                    </button>
+                </div>
                 <div
                     ref={scrollContainer}
                     class="flex-1 min-h-0 overflow-y-auto px-2 py-1"
