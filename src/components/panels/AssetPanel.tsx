@@ -279,7 +279,7 @@ export default function AssetPanel(props: AssetPanelProps) {
         if (!data || data.type !== 'file') return
         const ext = data.name.slice(data.name.lastIndexOf('.')).toLowerCase()
         if (SCRIPT_EXT.includes(ext)) {
-            openScriptFile(data.path)
+            void openScriptFile(data.path, { revealInCenter: true })
         } else if (MODEL_EXT.includes(ext)) {
             addAssetModelToScene(data)
         } else if (isPrefabFile(data)) {

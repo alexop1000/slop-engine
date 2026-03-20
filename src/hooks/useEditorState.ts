@@ -1,6 +1,8 @@
 import {
     createSignal,
     createMemo,
+    createEffect,
+    on,
     type Accessor,
     type Setter,
 } from 'solid-js'
@@ -8,7 +10,7 @@ import type { Scene, Node, Engine, GizmoManager } from 'babylonjs'
 import { makePersisted } from '@solid-primitives/storage'
 import { getAssetStore } from '../assetStore'
 import { collectScriptPaths, collectImagePaths } from '../utils/editorUtils'
-import { onScriptOpen } from '../scriptEditorStore'
+import { onScriptOpen, openScript } from '../scriptEditorStore'
 
 export type GizmoType = 'position' | 'rotation' | 'scale' | 'boundingBox'
 
@@ -51,8 +53,8 @@ export interface EditorState {
     setLastSaved: Setter<Date | null>
     showResetConfirm: Accessor<boolean>
     setShowResetConfirm: Setter<boolean>
-    viewportTab: Accessor<string | undefined>
-    setViewportTab: Setter<string | undefined>
+    centerWorkspace: Accessor<'viewport' | 'script'>
+    setCenterWorkspace: Setter<'viewport' | 'script'>
     scriptAssets: Accessor<string[]>
     imageAssets: Accessor<string[]>
 }
@@ -128,10 +130,18 @@ export function useEditorState(): EditorState {
     const [lastSaved, setLastSaved] = createSignal<Date | null>(null)
     const [showResetConfirm, setShowResetConfirm] = createSignal(false)
 
-    const [viewportTab, setViewportTab] = createSignal<string | undefined>(
-        undefined
+    const [centerWorkspace, setCenterWorkspace] = createSignal<
+        'viewport' | 'script'
+    >('viewport')
+    onScriptOpen((_path, options) => {
+        if (options?.revealInCenter) setCenterWorkspace('script')
+    })
+
+    createEffect(
+        on(openScript, (s) => {
+            if (!s) setCenterWorkspace('viewport')
+        })
     )
-    onScriptOpen(() => setViewportTab('script'))
 
     const assetStore = getAssetStore()
     const scriptAssets = createMemo(() => collectScriptPaths(assetStore.tree()))
@@ -176,8 +186,8 @@ export function useEditorState(): EditorState {
         setLastSaved,
         showResetConfirm,
         setShowResetConfirm,
-        viewportTab,
-        setViewportTab,
+        centerWorkspace,
+        setCenterWorkspace,
         scriptAssets,
         imageAssets,
     }

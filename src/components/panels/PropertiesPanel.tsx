@@ -748,8 +748,10 @@ function ScriptProperties(
                                         <button
                                             type="button"
                                             class="text-blue-400 hover:text-blue-300 truncate text-left flex-1 min-w-0"
-                                            onClick={() => openScriptFile(path)}
-                                            title="Open in editor"
+                                            onClick={() =>
+                                                void openScriptFile(path)
+                                            }
+                                            title="Load script; double-click it in Assets to open the editor"
                                         >
                                             {path}
                                         </button>

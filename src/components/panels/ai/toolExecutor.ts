@@ -478,7 +478,7 @@ export function createToolExecutor(
         )
 
         if (openScript()?.path === args.path) {
-            await openScriptFile(args.path)
+            await openScriptFile(args.path, { revealInCenter: true })
         }
 
         const errors = await typeCheckContent(args.content)
@@ -683,7 +683,7 @@ export function createToolExecutor(
         )
         await setBlob(args.path, new Blob([updated], { type: 'text/plain' }))
         if (openScript()?.path === args.path) {
-            await openScriptFile(args.path)
+            await openScriptFile(args.path, { revealInCenter: true })
         }
 
         const errors = await typeCheckContent(updated)

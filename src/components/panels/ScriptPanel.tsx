@@ -99,7 +99,11 @@ function configureMonacoDefaults() {
     )
 }
 
-export default function ScriptPanel() {
+interface ScriptPanelProps {
+    readonly onBackToViewport?: () => void
+}
+
+export default function ScriptPanel(props: Readonly<ScriptPanelProps>) {
     let container: HTMLDivElement | undefined
     let editor: monaco.editor.IStandaloneCodeEditor | null = null
     let saveTimeout: ReturnType<typeof setTimeout> | undefined
@@ -171,11 +175,23 @@ export default function ScriptPanel() {
     return (
         <div class="flex flex-col h-full">
             <Show when={openScript()}>
-                <div class="flex items-center justify-between px-2 py-1 bg-gray-800 border-b border-gray-700 text-xs text-gray-300">
-                    <span class="truncate">{openScript()!.path}</span>
+                <div class="flex items-center justify-between gap-2 px-2 py-1 bg-gray-800 border-b border-gray-700 text-xs text-gray-300">
+                    <Show when={props.onBackToViewport}>
+                        <button
+                            type="button"
+                            class="shrink-0 text-blue-400 hover:text-blue-300"
+                            onClick={() => props.onBackToViewport?.()}
+                            title="Back to viewport"
+                        >
+                            ← Viewport
+                        </button>
+                    </Show>
+                    <span class="truncate flex-1 min-w-0">
+                        {openScript()!.path}
+                    </span>
                     <button
                         type="button"
-                        class="text-gray-500 hover:text-gray-200 ml-2"
+                        class="text-gray-500 hover:text-gray-200 shrink-0"
                         onClick={closeScriptFile}
                         title="Close file"
                     >

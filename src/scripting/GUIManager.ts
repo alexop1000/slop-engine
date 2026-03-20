@@ -4,6 +4,7 @@ import {
     Button,
     TextBlock,
     Control,
+    Rectangle,
 } from '@babylonjs/gui'
 
 /** Options shared by all GUI controls. */
@@ -44,6 +45,20 @@ export interface GuiLabelOptions extends GuiControlOptions {
     textAlignment?: 'left' | 'center' | 'right'
     /** Whether to enable text wrapping. Default: true. */
     wordWrap?: boolean
+}
+
+/** Options for creating a GUI panel (a background rectangle). */
+export interface GuiPanelOptions extends GuiControlOptions {
+    /** Fill color for the panel background. Default: "rgba(0,0,0,0.5)". */
+    color?: string
+    /** Border color. Default: "transparent". */
+    borderColor?: string
+    /** Border thickness in pixels. Default: 0. */
+    borderThickness?: number
+    /** Corner radius in pixels. Default: 0. */
+    cornerRadius?: number
+    /** Overall opacity from 0 to 1. Default: 1. */
+    alpha?: number
 }
 
 const H_ALIGN_MAP = {
@@ -170,6 +185,47 @@ export class GuiLabelHandle {
     }
 }
 
+/** Handle returned by `createPanel`. Use it to update the panel at runtime. */
+export class GuiPanelHandle {
+    private readonly _panel: Rectangle
+    private readonly _manager: GUIManager
+
+    /** @internal */
+    constructor(panel: Rectangle, manager: GUIManager) {
+        this._panel = panel
+        this._manager = manager
+    }
+
+    /** Show or hide the panel. */
+    setVisible(visible: boolean): this {
+        this._panel.isVisible = visible
+        return this
+    }
+
+    /** Set panel background color (CSS string). */
+    setColor(color: string): this {
+        this._panel.background = color
+        return this
+    }
+
+    /** Set panel border color (CSS string). */
+    setBorderColor(color: string): this {
+        this._panel.color = color
+        return this
+    }
+
+    /** Set panel opacity from 0 to 1. */
+    setAlpha(alpha: number): this {
+        this._panel.alpha = alpha
+        return this
+    }
+
+    /** Remove this panel from the GUI. */
+    remove(): void {
+        this._manager._removeControl(this._panel)
+    }
+}
+
 /**
  * Manages a fullscreen BabylonJS GUI overlay for use during play mode.
  *
@@ -187,6 +243,43 @@ export class GUIManager {
             true,
             scene as any
         )
+    }
+
+    private _createRectangle(
+        name: string,
+        options: GuiControlOptions | undefined,
+        defaults: {
+            width: string
+            height: string
+            color: string
+            borderColor: string
+            borderThickness: number
+            cornerRadius: number
+            alpha: number
+        }
+    ): Rectangle {
+        const rect = new Rectangle(name)
+        const hAlign =
+            options?.horizontalAlignment ??
+            (options?.left === undefined ? 'center' : 'left')
+        const vAlign =
+            options?.verticalAlignment ??
+            (options?.top === undefined ? 'center' : 'top')
+        const pos = normalizePosition(
+            options?.left,
+            options?.top,
+            hAlign,
+            vAlign
+        )
+
+        rect.width = toPx(options?.width, defaults.width)
+        rect.height = toPx(options?.height, defaults.height)
+        rect.left = pos.left
+        rect.top = pos.top
+        rect.horizontalAlignment = H_ALIGN_MAP[hAlign]
+        rect.verticalAlignment = V_ALIGN_MAP[vAlign]
+
+        return rect
     }
 
     /**
@@ -215,10 +308,10 @@ export class GUIManager {
         const btn = Button.CreateSimpleButton(name, text)
         const hAlign =
             options?.horizontalAlignment ??
-            (options?.left !== undefined ? 'left' : 'center')
+            (options?.left === undefined ? 'center' : 'left')
         const vAlign =
             options?.verticalAlignment ??
-            (options?.top !== undefined ? 'top' : 'center')
+            (options?.top === undefined ? 'center' : 'top')
         const pos = normalizePosition(
             options?.left,
             options?.top,
@@ -276,10 +369,10 @@ export class GUIManager {
         const label = new TextBlock(name, text)
         const hAlign =
             options?.horizontalAlignment ??
-            (options?.left !== undefined ? 'left' : 'center')
+            (options?.left === undefined ? 'center' : 'left')
         const vAlign =
             options?.verticalAlignment ??
-            (options?.top !== undefined ? 'top' : 'center')
+            (options?.top === undefined ? 'center' : 'top')
         const pos = normalizePosition(
             options?.left,
             options?.top,
@@ -295,7 +388,9 @@ export class GUIManager {
         label.top = pos.top
         label.color = options?.color ?? 'white'
         label.fontSize = options?.fontSize ?? 16
-        label.textWrapping = hasExplicitWidth ? (options?.wordWrap ?? true) : false
+        label.textWrapping = hasExplicitWidth
+            ? options?.wordWrap ?? true
+            : false
         label.horizontalAlignment = H_ALIGN_MAP[hAlign]
         label.verticalAlignment = V_ALIGN_MAP[vAlign]
         if (!hasExplicitWidth && !hasExplicitHeight) {
@@ -304,13 +399,17 @@ export class GUIManager {
 
         const textHAlign =
             options?.textAlignment ??
-            (hAlign === 'left' ? 'left' : hAlign === 'right' ? 'right' : 'center')
+            (hAlign === 'left'
+                ? 'left'
+                : hAlign === 'right'
+                ? 'right'
+                : 'center')
         const textVAlign =
             vAlign === 'top'
                 ? Control.VERTICAL_ALIGNMENT_TOP
                 : vAlign === 'bottom'
-                  ? Control.VERTICAL_ALIGNMENT_BOTTOM
-                  : Control.VERTICAL_ALIGNMENT_CENTER
+                ? Control.VERTICAL_ALIGNMENT_BOTTOM
+                : Control.VERTICAL_ALIGNMENT_CENTER
         switch (textHAlign) {
             case 'left':
                 label.textHorizontalAlignment =
@@ -331,6 +430,33 @@ export class GUIManager {
         this._controls.push(label)
 
         return new GuiLabelHandle(label, this)
+    }
+
+    /**
+     * Create a panel (background rectangle) on the screen.
+     * Useful for HUD/menu backgrounds behind labels and buttons.
+     */
+    createPanel(name: string, options?: GuiPanelOptions): GuiPanelHandle {
+        const panel = this._createRectangle(name, options, {
+            width: '260px',
+            height: '140px',
+            color: 'rgba(0,0,0,0.5)',
+            borderColor: 'transparent',
+            borderThickness: 0,
+            cornerRadius: 0,
+            alpha: 1,
+        })
+
+        panel.background = options?.color ?? 'rgba(0,0,0,0.5)'
+        panel.color = options?.borderColor ?? 'transparent'
+        panel.thickness = options?.borderThickness ?? 0
+        panel.cornerRadius = options?.cornerRadius ?? 0
+        panel.alpha = options?.alpha ?? 1
+
+        this._texture.addControl(panel)
+        this._controls.push(panel)
+
+        return new GuiPanelHandle(panel, this)
     }
 
     /** @internal Remove a single control from the texture. */

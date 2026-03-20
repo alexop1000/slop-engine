@@ -42,8 +42,8 @@ export function EditorLayout(props: Readonly<EditorLayoutProps>) {
         removeNodeFromSelection,
         setNodeTick,
         nodeTick,
-        viewportTab,
-        setViewportTab,
+        centerWorkspace,
+        setCenterWorkspace,
         scriptAssets,
         imageAssets,
     } = props.state
@@ -109,36 +109,20 @@ export function EditorLayout(props: Readonly<EditorLayoutProps>) {
                         minSize={0.1}
                         class="bg-gray-800 p-2 rounded-md h-full overflow-hidden flex flex-col"
                     >
-                        <div
-                            class="flex flex-col flex-1 min-h-0"
-                            classList={{
-                                '[&>div>div:first-child]:hidden': isVibeMode(),
-                            }}
-                        >
-                            <Tabs
-                                tabs={[
-                                    {
-                                        id: 'viewport',
-                                        label: 'Viewport',
-                                    },
-                                    { id: 'script', label: 'Script' },
-                                ]}
-                                defaultTab="viewport"
-                                activeTab={viewportTab}
-                                onChange={(id) => setViewportTab(id)}
-                                class="flex flex-col flex-1 min-h-0"
-                                contentClass="flex-1 min-h-0 flex flex-col"
-                            >
-                                <TabPanel
-                                    tabId="viewport"
-                                    class="flex-1 min-h-0"
-                                >
-                                    <ViewportPanel />
-                                </TabPanel>
-                                <TabPanel tabId="script" class="flex-1 min-h-0">
-                                    <ScriptPanel />
-                                </TabPanel>
-                            </Tabs>
+                        <div class="relative flex flex-1 min-h-0 flex-col">
+                            {/* Keep canvas mounted — Engine holds a reference to that element */}
+                            <div class="absolute inset-0 z-0 flex min-h-0 min-w-0 flex-col">
+                                <ViewportPanel />
+                            </div>
+                            <Show when={centerWorkspace() === 'script'}>
+                                <div class="absolute inset-0 z-10 flex min-h-0 min-w-0 flex-col bg-gray-800">
+                                    <ScriptPanel
+                                        onBackToViewport={() =>
+                                            setCenterWorkspace('viewport')
+                                        }
+                                    />
+                                </div>
+                            </Show>
                         </div>
                     </Resizable.Panel>
                     <Show when={!isVibeMode()}>

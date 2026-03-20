@@ -10,7 +10,12 @@ export interface OpenScript {
 
 const [openScript, setOpenScript] = createSignal<OpenScript | null>(null)
 
-type OpenCallback = (path: string) => void
+export type OpenScriptOptions = {
+    /** When true, the main workspace should switch to the script editor. */
+    revealInCenter?: boolean
+}
+
+type OpenCallback = (path: string, options?: OpenScriptOptions) => void
 const openCallbacks: OpenCallback[] = []
 
 /** Register a callback invoked whenever a script file is opened. */
@@ -23,11 +28,14 @@ export function onScriptOpen(cb: OpenCallback): () => void {
 }
 
 /** Open a script asset by path – reads its blob from IndexedDB. */
-export async function openScriptFile(path: string): Promise<void> {
+export async function openScriptFile(
+    path: string,
+    options?: OpenScriptOptions
+): Promise<void> {
     const blob = await getBlob(path)
     const content = blob ? await blob.text() : ''
     setOpenScript({ path, content })
-    for (const cb of openCallbacks) cb(path)
+    for (const cb of openCallbacks) cb(path, options)
 }
 
 /** Save the current editor content back to IndexedDB. */

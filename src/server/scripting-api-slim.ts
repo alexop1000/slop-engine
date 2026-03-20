@@ -77,9 +77,11 @@ declare interface CollisionEvent { readonly other: Mesh; readonly point: Vector3
 declare class GUI {
     createButton(name: string, text: string, options?: object): GuiButtonHandle
     createLabel(name: string, text: string, options?: object): GuiLabelHandle
+    createPanel(name: string, options?: object): GuiPanelHandle
 }
 declare class GuiButtonHandle { onClick(cb: () => void): this; setText(t: string): this; setVisible(v: boolean): this; setColor(c: string): this; remove(): void }
 declare class GuiLabelHandle { setText(t: string): this; setVisible(v: boolean): this; setColor(c: string): this; remove(): void }
+declare class GuiPanelHandle { setVisible(v: boolean): this; setColor(c: string): this; setBorderColor(c: string): this; setAlpha(a: number): this; remove(): void }
 
 // Spawn options
 interface SpawnOptions {

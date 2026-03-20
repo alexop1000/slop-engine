@@ -102,10 +102,7 @@ export class Script<N extends Node = TransformNode> {
 
     /** Get another script attached to this same node by its file path. */
     getScript<T = Script>(path: string): T | null {
-        return this._lookup(
-            (this.node as any).uniqueId,
-            path
-        ) as T | null
+        return this._lookup((this.node as any).uniqueId, path) as T | null
     }
 
     /** Get a script attached to a different node by its file path. */

@@ -99,10 +99,7 @@ if (!(AbstractMesh.prototype as any).getBoundingSize) {
  * @param tsSource - Raw TypeScript source
  * @param filePath - Path used for stack traces (e.g. "scripts/MyScript.ts")
  */
-function compileScript(
-    tsSource: string,
-    filePath: string
-): new () => Script {
+function compileScript(tsSource: string, filePath: string): new () => Script {
     // Transpile TS → JS (CJS so we can extract exports.default)
     const { code: jsCode } = transform(tsSource, {
         transforms: ['typescript', 'imports'],
@@ -326,7 +323,11 @@ export class ScriptRuntime {
             try {
                 instance.start()
             } catch (err) {
-                pushLog('error', `Error in start() of "${path}":`, formatError(err, path))
+                pushLog(
+                    'error',
+                    `Error in start() of "${path}":`,
+                    formatError(err, path)
+                )
             }
         }
 
@@ -374,7 +375,11 @@ export class ScriptRuntime {
             try {
                 instance.update()
             } catch (err) {
-                pushLog('error', `Error in update() of "${path}":`, formatError(err, path))
+                pushLog(
+                    'error',
+                    `Error in update() of "${path}":`,
+                    formatError(err, path)
+                )
             }
         }
     }

@@ -1083,6 +1083,20 @@ interface GuiLabelOptions extends GuiControlOptions {
     wordWrap?: boolean
 }
 
+/** Options for {@link GUI.createPanel}. */
+interface GuiPanelOptions extends GuiControlOptions {
+    /** Fill color (CSS string). Default: `"rgba(0,0,0,0.5)"`. */
+    color?: string
+    /** Border color (CSS string). Default: `"transparent"`. */
+    borderColor?: string
+    /** Border thickness in pixels. Default: `0`. */
+    borderThickness?: number
+    /** Corner radius in pixels. Default: `0`. */
+    cornerRadius?: number
+    /** Overall opacity from 0 to 1. Default: `1`. */
+    alpha?: number
+}
+
 /**
  * Handle for a GUI button returned by {@link GUI.createButton}.
  * Use it to respond to clicks and update the button at runtime.
@@ -1112,6 +1126,20 @@ declare class GuiLabelHandle {
     /** Change the text color (CSS string). Returns `this`. */
     setColor(color: string): this
     /** Remove this label from the screen. */
+    remove(): void
+}
+
+/** Handle for a panel returned by {@link GUI.createPanel}. */
+declare class GuiPanelHandle {
+    /** Show or hide the panel. Returns `this`. */
+    setVisible(visible: boolean): this
+    /** Change the panel background color. Returns `this`. */
+    setColor(color: string): this
+    /** Change the panel border color. Returns `this`. */
+    setBorderColor(color: string): this
+    /** Change panel opacity (0 to 1). Returns `this`. */
+    setAlpha(alpha: number): this
+    /** Remove this panel from the screen. */
     remove(): void
 }
 
@@ -1200,6 +1228,12 @@ declare class GUI {
         text: string,
         options?: GuiLabelOptions
     ): GuiLabelHandle
+
+    /**
+     * Create a panel (background rectangle).
+     * Useful for HUD or menu backgrounds.
+     */
+    createPanel(name: string, options?: GuiPanelOptions): GuiPanelHandle
 }
 
 // ---------------------------------------------------------------------------
