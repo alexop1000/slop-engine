@@ -6,8 +6,10 @@ export interface SelectOption {
     disabled?: boolean
 }
 
-export interface SelectProps
-    extends Omit<JSX.SelectHTMLAttributes<HTMLSelectElement>, 'children'> {
+export interface SelectProps extends Omit<
+    JSX.SelectHTMLAttributes<HTMLSelectElement>,
+    'children'
+> {
     label?: string
     error?: string
     hint?: string
@@ -24,23 +26,24 @@ export function Select(props: SelectProps) {
         'placeholder',
         'class',
         'id',
+        'value',
     ])
 
-    const inputId = () =>
+    const inputId =
         local.id ?? `select-${Math.random().toString(36).slice(2, 9)}`
 
     return (
         <div class="w-full">
             <Show when={local.label}>
                 <label
-                    for={inputId()}
+                    for={inputId}
                     class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1"
                 >
                     {local.label}
                 </label>
             </Show>
             <select
-                id={inputId()}
+                id={inputId}
                 class={`
                     block w-full rounded-md px-3 py-2 text-sm
                     bg-white dark:bg-gray-900
@@ -57,6 +60,7 @@ export function Select(props: SelectProps) {
                     }
                     ${local.class ?? ''}
                 `}
+                value={local.value as string | undefined}
                 {...rest}
             >
                 <Show when={local.placeholder}>
@@ -66,7 +70,11 @@ export function Select(props: SelectProps) {
                 </Show>
                 <For each={local.options}>
                     {(option) => (
-                        <option value={option.value} disabled={option.disabled}>
+                        <option
+                            value={option.value}
+                            disabled={option.disabled}
+                            selected={option.value === local.value}
+                        >
                             {option.label}
                         </option>
                     )}
