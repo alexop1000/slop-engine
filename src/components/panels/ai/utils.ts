@@ -8,6 +8,13 @@ import type {
 
 marked.setOptions({ breaks: true, gfm: true })
 
+const THINKING_BLOCK_RE =
+    /<(think|thinking|thought|reasoning|inner_monologue)[\s>][\s\S]*?<\/\1>/gi
+
+export function stripThinkingBlocks(text: string): string {
+    return text.replaceAll(THINKING_BLOCK_RE, '').trim()
+}
+
 export function formatLogArg(arg: unknown): string {
     if (arg === null) return 'null'
     if (arg === undefined) return 'undefined'
@@ -69,12 +76,22 @@ export function groupPartsInOrder(
 
     const flushText = () => {
         if (pendingText) {
-            segments.push({ kind: 'text', text: pendingText })
+            const cleaned = stripThinkingBlocks(pendingText)
+            if (cleaned) {
+                segments.push({ kind: 'text', text: cleaned })
+            }
             pendingText = ''
         }
     }
 
     for (const part of parts) {
+        if (
+            part.type === 'reasoning' ||
+            part.type === 'thinking' ||
+            part.type === 'redacted-reasoning'
+        ) {
+            continue
+        }
         if (isToolPart(part)) {
             flushText()
             segments.push({ kind: 'tool', part: part as unknown as ToolUIPart })

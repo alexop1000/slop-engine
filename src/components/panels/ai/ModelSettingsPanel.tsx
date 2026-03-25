@@ -114,6 +114,7 @@ export function ModelSettingsPanel() {
                 label="Provider"
                 options={PROVIDER_OPTIONS}
                 value={modelSettings().provider}
+                autocomplete="off"
                 onChange={(e) =>
                     setProvider(e.currentTarget.value as AIProvider)
                 }
@@ -139,6 +140,7 @@ export function ModelSettingsPanel() {
                         <Input
                             label="Azure Resource Name"
                             value={credentials().azureResourceName ?? ''}
+                            autocomplete="off"
                             onInput={(e) =>
                                 setCredential(
                                     'azureResourceName',
@@ -153,6 +155,7 @@ export function ModelSettingsPanel() {
                                 label="Azure API Key"
                                 type={showAzureKey() ? 'text' : 'password'}
                                 value={credentials().azureApiKey ?? ''}
+                                autocomplete="off"
                                 onInput={(e) =>
                                     setCredential(
                                         'azureApiKey',
@@ -185,6 +188,7 @@ export function ModelSettingsPanel() {
                                 label="OpenRouter API Key"
                                 type={showOpenRouterKey() ? 'text' : 'password'}
                                 value={credentials().openrouterApiKey ?? ''}
+                                autocomplete="off"
                                 onInput={(e) =>
                                     setCredential(
                                         'openrouterApiKey',
@@ -219,6 +223,7 @@ export function ModelSettingsPanel() {
                                 label="Google API Key"
                                 type={showGoogleKey() ? 'text' : 'password'}
                                 value={credentials().googleApiKey ?? ''}
+                                autocomplete="off"
                                 onInput={(e) =>
                                     setCredential(
                                         'googleApiKey',
@@ -252,6 +257,7 @@ export function ModelSettingsPanel() {
                             modelSettings().models[agentType] ??
                             getDefaultModel(modelSettings().provider, agentType)
                         }
+                        autocomplete="off"
                         onInput={(e) =>
                             setModel(agentType, e.currentTarget.value)
                         }

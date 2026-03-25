@@ -74,6 +74,13 @@ type SubagentMessage = {
     content: unknown
 }
 
+const THINKING_BLOCK_RE =
+    /<(think|thinking|thought|reasoning|inner_monologue)[\s>][\s\S]*?<\/\1>/gi
+
+function stripThinkingBlocks(text: string): string {
+    return text.replaceAll(THINKING_BLOCK_RE, '').trim()
+}
+
 type ModelSettings = {
     provider: 'azure' | 'openrouter' | 'google'
     models: Record<string, string>
@@ -606,6 +613,8 @@ export function chatApiPlugin(): Plugin {
                         tools: tools as any,
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         messages: messages as any,
+                        maxOutputTokens: 16384,
+                        timeout: 110_000,
                     })
 
                     type AnyToolCall = {
@@ -614,7 +623,7 @@ export function chatApiPlugin(): Plugin {
                         input: unknown
                     }
                     const response = {
-                        text: result.text,
+                        text: stripThinkingBlocks(result.text),
                         toolCalls: (
                             (result.toolCalls ?? []) as unknown as AnyToolCall[]
                         ).map((tc) => ({

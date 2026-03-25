@@ -81,14 +81,7 @@ export interface EditorSceneResult {
     scene: Scene
 }
 
-export function createDefaultScene(
-    engine: Engine,
-    physicsPlugin: HavokPlugin
-): EditorSceneResult {
-    const scene = new Scene(engine)
-    scene.createDefaultLight(true)
-    scene.enablePhysics(new Vector3(0, -9.81, 0), physicsPlugin)
-
+function createDefaultGroundMesh(scene: Scene): Mesh {
     const ground = MeshBuilder.CreateGround(
         'ground1',
         { width: 100, height: 100, subdivisions: 2 },
@@ -101,7 +94,32 @@ export function createDefaultScene(
     groundMaterial.specularPower = 1111
     groundMaterial.roughness = 0.1
     ground.material = groundMaterial
+    return ground
+}
 
+/** Ensures hemispheric light + ground used by the editor; physics must already be enabled. */
+function ensureDefaultGroundAndLight(scene: Scene): void {
+    if (scene.lights.length === 0) {
+        scene.createDefaultLight(true)
+    }
+    let ground = scene.getMeshByName('ground1')
+    if (!ground) {
+        ground = createDefaultGroundMesh(scene)
+    }
+    if (ground instanceof Mesh && !ground.physicsBody) {
+        void new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, scene)
+    }
+}
+
+export function createDefaultScene(
+    engine: Engine,
+    physicsPlugin: HavokPlugin
+): EditorSceneResult {
+    const scene = new Scene(engine)
+    scene.createDefaultLight(true)
+    scene.enablePhysics(new Vector3(0, -9.81, 0), physicsPlugin)
+
+    const ground = createDefaultGroundMesh(scene)
     void new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, scene)
 
     return {
@@ -248,6 +266,8 @@ export async function loadSceneFromJson(
                 scene
             )
         }
+
+        ensureDefaultGroundAndLight(scene)
 
         return { scene }
     } finally {

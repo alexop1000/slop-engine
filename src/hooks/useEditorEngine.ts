@@ -399,9 +399,12 @@ export function useEditorEngine(state: EditorState) {
         // Migrate scene data from localStorage (pre-IndexedDB) on first load
         const LS_SCENE_KEY = 'slop-engine-scene-v1'
         let savedJson = await getSceneJsonFromDB()
+        if (typeof savedJson === 'string' && savedJson.trim() === '') {
+            savedJson = null
+        }
         if (!savedJson) {
             const lsJson = localStorage.getItem(LS_SCENE_KEY)
-            if (lsJson) {
+            if (lsJson && lsJson.trim() !== '') {
                 savedJson = lsJson
                 await saveSceneJsonToDB(lsJson)
                 localStorage.removeItem(LS_SCENE_KEY)

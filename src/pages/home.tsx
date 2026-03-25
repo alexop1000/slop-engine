@@ -5,7 +5,7 @@ import {
     EditorLayout,
 } from '../components/editor'
 import { downloadSceneBundle, importSceneBundle } from '../scene/EditorScene'
-import { getAssetStore, clearAllBlobs } from '../assetStore'
+import { getAssetStore, clearAllBlobs, clearSceneJsonFromDB, saveSceneJsonToDB } from '../assetStore'
 import { clearAllSessions } from '../chatHistoryStore'
 import { useEditorState } from '../hooks/useEditorState'
 import { useEditorEngine } from '../hooks/useEditorEngine'
@@ -18,6 +18,8 @@ export default function Home() {
 
     const handleReset = async () => {
         await clearAllBlobs()
+        await clearSceneJsonFromDB()
+        localStorage.removeItem('slop-engine-scene-v1')
         await clearAllSessions()
         getAssetStore().setTree({
             id: '__root__',
@@ -31,18 +33,19 @@ export default function Home() {
     }
 
     const handleBundleImport = async (e: Event) => {
-        const file = (e.currentTarget as HTMLInputElement).files?.[0]
+        const input = e.currentTarget as HTMLInputElement
+        const file = input.files?.[0]
         if (!file) return
         try {
             const { sceneJson: bundleJson, assetTree } =
                 await importSceneBundle(file)
             getAssetStore().setTree(assetTree)
-            state.setSceneJson(bundleJson)
+            await saveSceneJsonToDB(bundleJson)
             globalThis.location.reload()
         } catch (err) {
             console.error('Failed to import bundle:', err)
         }
-        ;(e.currentTarget as HTMLInputElement).value = ''
+        input.value = ''
     }
 
     return (

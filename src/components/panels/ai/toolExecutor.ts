@@ -239,7 +239,8 @@ const PREFAB_EXT = '.prefab.json'
 const MAX_AGENT_STEPS = 20
 const MAX_AUTONOMOUS_TEST_STEPS = 100
 const MAX_AUTONOMOUS_TEST_SECONDS = 30
-const MAX_SUBAGENT_STEP_MS = 45000
+const MAX_SUBAGENT_STEP_MS = 120_000
+const MAX_SUBAGENT_RETRIES = 2
 
 type AutonomousInputStep =
     | { action: 'key_down'; key: string }
@@ -414,6 +415,14 @@ interface SubagentStep {
     }>
     finishReason: string
     error?: string
+}
+
+const CJK_HEAVY_RE =
+    /[\u4e00-\u9fff\u3400-\u4dbf\u{20000}-\u{2a6df}\u{2a700}-\u{2b73f}]{10,}/u
+
+function looksGarbled(text: string): boolean {
+    if (!text) return false
+    return CJK_HEAVY_RE.test(text)
 }
 
 type SubagentUserContent =
@@ -1730,51 +1739,106 @@ export function createToolExecutor(
 
         try {
             for (let step = 0; step < MAX_AGENT_STEPS; step++) {
-                const controller = new AbortController()
-                const timeout = setTimeout(() => {
-                    controller.abort()
-                }, MAX_SUBAGENT_STEP_MS)
+                let data: SubagentStep | null = null
+                let lastError: Error | null = null
 
-                let res: Response
-                try {
-                    res = await fetch('/api/subagent', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            messages,
-                            agentType: args.agentType,
-                            modelSettings: normalizeModelSettings(
-                                ctx.modelSettings()
-                            ),
-                        }),
-                        signal: controller.signal,
-                    })
-                } catch (error) {
-                    if (
-                        error instanceof DOMException &&
-                        error.name === 'AbortError'
-                    ) {
-                        throw new Error(
-                            `Subagent step timed out after ${Math.round(
-                                MAX_SUBAGENT_STEP_MS / 1000
-                            )}s`
-                        )
+                for (
+                    let attempt = 0;
+                    attempt <= MAX_SUBAGENT_RETRIES;
+                    attempt++
+                ) {
+                    const controller = new AbortController()
+                    const timeout = setTimeout(() => {
+                        controller.abort()
+                    }, MAX_SUBAGENT_STEP_MS)
+
+                    let res: Response
+                    try {
+                        res = await fetch('/api/subagent', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                messages,
+                                agentType: args.agentType,
+                                modelSettings: normalizeModelSettings(
+                                    ctx.modelSettings()
+                                ),
+                            }),
+                            signal: controller.signal,
+                        })
+                    } catch (error) {
+                        clearTimeout(timeout)
+                        if (
+                            error instanceof DOMException &&
+                            error.name === 'AbortError'
+                        ) {
+                            lastError = new Error(
+                                `Subagent step timed out after ${Math.round(
+                                    MAX_SUBAGENT_STEP_MS / 1000
+                                )}s`
+                            )
+                            if (attempt < MAX_SUBAGENT_RETRIES) {
+                                console.warn(
+                                    `[subagent] Timeout on attempt ${attempt + 1}, retrying...`
+                                )
+                                continue
+                            }
+                            throw lastError
+                        }
+                        throw error
+                    } finally {
+                        clearTimeout(timeout)
                     }
-                    throw error
-                } finally {
-                    clearTimeout(timeout)
+
+                    if (!res.ok) {
+                        const err = (await res.json().catch(() => ({}))) as {
+                            error?: string
+                        }
+                        lastError = new Error(
+                            err.error ??
+                                `Subagent request failed (${res.status})`
+                        )
+                        if (attempt < MAX_SUBAGENT_RETRIES) {
+                            console.warn(
+                                `[subagent] HTTP ${res.status} on attempt ${attempt + 1}, retrying...`
+                            )
+                            continue
+                        }
+                        throw lastError
+                    }
+
+                    const candidate = (await res.json()) as SubagentStep
+
+                    const allText = [
+                        candidate.text,
+                        ...candidate.toolCalls.map((tc) =>
+                            JSON.stringify(tc.args)
+                        ),
+                    ].join(' ')
+
+                    if (looksGarbled(allText)) {
+                        lastError = new Error(
+                            'Subagent returned garbled output'
+                        )
+                        if (attempt < MAX_SUBAGENT_RETRIES) {
+                            console.warn(
+                                `[subagent] Garbled output on attempt ${attempt + 1}, retrying...`
+                            )
+                            continue
+                        }
+                        throw lastError
+                    }
+
+                    data = candidate
+                    break
                 }
 
-                if (!res.ok) {
-                    const err = (await res.json().catch(() => ({}))) as {
-                        error?: string
-                    }
-                    throw new Error(
-                        err.error ?? `Subagent request failed (${res.status})`
+                if (!data) {
+                    throw (
+                        lastError ??
+                        new Error('Subagent failed after retries')
                     )
                 }
-
-                const data = (await res.json()) as SubagentStep
 
                 const assistantContent: Extract<
                     SubagentMessage,
