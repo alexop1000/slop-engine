@@ -27,11 +27,11 @@ export interface ModelSettings {
 
 const DEFAULT_MODELS: Record<AgentType, string> = {
     orchestrator: 'gpt-5.3-chat',
-    scene: 'gpt-5.3-chat',
-    script: 'gpt-5.3-chat',
-    ui: 'gpt-5.3-chat',
-    asset: 'gpt-5.3-chat',
-    test: 'gpt-5.3-chat',
+    scene: 'gpt-5.4-mini',
+    script: 'gpt-5.4-mini',
+    ui: 'gpt-5.4-mini',
+    asset: 'gpt-5.4-mini',
+    test: 'gpt-5.4-mini',
 }
 
 const DEFAULT_OPENROUTER_MODELS: Record<AgentType, string> = {
