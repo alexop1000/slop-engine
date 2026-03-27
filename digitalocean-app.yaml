@@ -1,0 +1,39 @@
+name: slop-engine
+region: nyc
+services:
+    - name: web
+      dockerfile_path: Dockerfile
+      http_port: 3000
+      instance_count: 1
+      instance_size_slug: basic-xxs
+      routes:
+          - path: /
+      health_check:
+          http_path: /
+      envs:
+          - key: AZURE_OPENAI_API_KEY
+            scope: RUN_AND_BUILD_TIME
+            type: SECRET
+            value: REPLACE_ME
+          - key: AZURE_OPENAI_RESOURCE_NAME
+            scope: RUN_AND_BUILD_TIME
+            value: REPLACE_ME
+          - key: AZURE_OPENAI_DEPLOYMENT
+            scope: RUN_AND_BUILD_TIME
+            value: gpt-5.2-chat
+          - key: OPENROUTER_API_KEY
+            scope: RUN_AND_BUILD_TIME
+            type: SECRET
+            value: REPLACE_ME
+          - key: GOOGLE_API_KEY
+            scope: RUN_AND_BUILD_TIME
+            type: SECRET
+            value: REPLACE_ME
+          - key: TRIPO_API_KEY
+            scope: RUN_AND_BUILD_TIME
+            type: SECRET
+            value: REPLACE_ME
+          - key: NANOBANANA_API_KEY
+            scope: RUN_AND_BUILD_TIME
+            type: SECRET
+            value: REPLACE_ME
