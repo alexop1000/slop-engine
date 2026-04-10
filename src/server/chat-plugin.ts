@@ -3,12 +3,7 @@ import { loadEnv } from 'vite'
 import { createAzure } from '@ai-sdk/azure'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import {
-    streamText,
-    generateText,
-    convertToModelMessages,
-    type UIMessage,
-} from 'ai'
+import { streamText, generateText, type UIMessage } from 'ai'
 import { Readable } from 'node:stream'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -67,6 +62,13 @@ import {
     tripoPollUntilModelReady,
     tripoSubmitTextToModel,
 } from './tripo'
+import {
+    aggregateCostUsd,
+    logAgentLlmCall,
+    summarizeChatRequest,
+    summarizeSubagentRequest,
+} from './agent-llm-log'
+import { convertToModelMessagesWithDataUris } from './message-utils'
 
 // Minimal CoreMessage-compatible type for the subagent endpoint
 type SubagentMessage = {
@@ -242,16 +244,21 @@ export function chatApiPlugin(): Plugin {
                             selectedNode?: { name: string; type: string }
                         }
 
-                    const modelMessages = await convertToModelMessages(
-                        messages,
-                        { ignoreIncompleteToolCalls: true }
-                    )
+                    const modelMessages =
+                        await convertToModelMessagesWithDataUris(messages, {
+                            ignoreIncompleteToolCalls: true,
+                        })
                     const model = getModel(
                         modelSettings,
                         'orchestrator',
                         env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat',
                         env
                     )
+                    const orchestratorModelId =
+                        modelSettings?.models?.orchestrator?.trim() ||
+                        env.AZURE_OPENAI_DEPLOYMENT ||
+                        'gpt-5.2-chat'
+                    const chatRequestSummary = summarizeChatRequest(messages)
 
                     const result = streamText({
                         model,
@@ -263,6 +270,25 @@ export function chatApiPlugin(): Plugin {
                             present_plan: presentPlanTool,
                         },
                         messages: modelMessages,
+                        onFinish: (event) => {
+                            const costUsd = aggregateCostUsd({
+                                providerMetadata: event.providerMetadata,
+                                steps: event.steps,
+                                usage: event.totalUsage,
+                            })
+                            logAgentLlmCall({
+                                route: 'chat',
+                                provider: modelSettings?.provider ?? 'azure',
+                                modelId: orchestratorModelId,
+                                agentRole: 'orchestrator',
+                                request: chatRequestSummary,
+                                usage: event.usage,
+                                totalUsage: event.totalUsage,
+                                costUsd,
+                                finishReason: event.finishReason,
+                                selectedNode,
+                            })
+                        },
                     })
 
                     const webResponse = result.toUIMessageStreamResponse()
@@ -604,6 +630,13 @@ export function chatApiPlugin(): Plugin {
                         env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat',
                         env
                     )
+                    const subagentModelId =
+                        modelSettings?.models?.[agentType]?.trim() ||
+                        env.AZURE_OPENAI_DEPLOYMENT ||
+                        'gpt-5.2-chat'
+                    const subagentRequestSummary = summarizeSubagentRequest(
+                        messages
+                    )
 
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const result = await generateText({
@@ -615,6 +648,23 @@ export function chatApiPlugin(): Plugin {
                         messages: messages as any,
                         maxOutputTokens: 16384,
                         timeout: 110_000,
+                    })
+
+                    const costUsd = aggregateCostUsd({
+                        providerMetadata: result.providerMetadata,
+                        steps: result.steps,
+                        usage: result.totalUsage,
+                    })
+                    logAgentLlmCall({
+                        route: 'subagent',
+                        provider: modelSettings?.provider ?? 'azure',
+                        modelId: subagentModelId,
+                        agentRole: agentType,
+                        request: subagentRequestSummary,
+                        usage: result.usage,
+                        totalUsage: result.totalUsage,
+                        costUsd,
+                        finishReason: result.finishReason,
                     })
 
                     type AnyToolCall = {
