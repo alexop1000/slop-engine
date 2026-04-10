@@ -65,6 +65,9 @@ export interface AddMeshOptions {
     rotationDegrees?: [number, number, number]
     scale?: [number, number, number]
     color?: [number, number, number]
+    wireframe?: boolean
+    physicsEnabled?: boolean
+    physicsMass?: number
     size?: MeshSize
 }
 
@@ -90,6 +93,9 @@ export interface UpdateNodeOptions {
     scale?: [number, number, number]
     color?: [number, number, number]
     intensity?: number
+    wireframe?: boolean
+    physicsEnabled?: boolean
+    physicsMass?: number
     rename?: string
 }
 
@@ -529,10 +535,13 @@ export function addMeshToScene(scene: Scene, options: AddMeshOptions): Mesh {
     } else {
         mat.diffuseColor = new Color3(0.6, 0.6, 0.6)
     }
+    if (options.wireframe !== undefined) {
+        mat.wireframe = options.wireframe
+    }
     mesh.material = mat
     mesh.metadata = {
-        physicsMass: 1,
-        physicsEnabled: false,
+        physicsMass: options.physicsMass ?? 1,
+        physicsEnabled: options.physicsEnabled ?? false,
         size: sz ?? {},
         meshType: options.type,
     }
@@ -680,8 +689,25 @@ export function updateNodeInScene(
         }
     }
 
+    if (options.wireframe !== undefined) {
+        if (node instanceof Mesh && node.material instanceof StandardMaterial) {
+            node.material.wireframe = options.wireframe
+        }
+    }
+
     if (options.intensity !== undefined && node instanceof Light) {
         node.intensity = options.intensity
+    }
+
+    if (node instanceof Mesh) {
+        if (!node.metadata) node.metadata = {}
+        const meta = node.metadata as Record<string, unknown>
+        if (options.physicsEnabled !== undefined) {
+            meta.physicsEnabled = options.physicsEnabled
+        }
+        if (options.physicsMass !== undefined) {
+            meta.physicsMass = options.physicsMass
+        }
     }
 
     if (options.rename) {

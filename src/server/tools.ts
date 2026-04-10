@@ -32,7 +32,7 @@ export const getSceneTool = {
 
 export const addMeshTool = {
     description:
-        'Create a new mesh (3D shape) in the scene. Use size to set dimensions directly.',
+        'Create a new mesh (3D shape) in the scene. Use size to set dimensions directly. Optionally set wireframe, physicsEnabled, and physicsMass for the mesh.',
     inputSchema: jsonSchema<{
         type: string
         name?: string
@@ -41,6 +41,9 @@ export const addMeshTool = {
         rotationDegrees?: [number, number, number]
         scale?: [number, number, number]
         color?: [number, number, number]
+        wireframe?: boolean
+        physicsEnabled?: boolean
+        physicsMass?: number
         size?: {
             width?: number
             height?: number
@@ -99,6 +102,21 @@ export const addMeshTool = {
                 items: { type: 'number' },
                 description:
                     'Diffuse color as [r, g, b], each 0-1. Defaults to gray.',
+            },
+            wireframe: {
+                type: 'boolean',
+                description:
+                    'Render the mesh as wireframe. Defaults to false.',
+            },
+            physicsEnabled: {
+                type: 'boolean',
+                description:
+                    'Whether the mesh should have physics enabled. Defaults to false.',
+            },
+            physicsMass: {
+                type: 'number',
+                description:
+                    'Physics mass for the mesh. Defaults to 1.',
             },
             size: {
                 type: 'object',
@@ -182,7 +200,7 @@ export const addLightTool = {
 
 export const updateNodeTool = {
     description:
-        'Update properties of an existing node in the scene. Use get_scene first to find node names.',
+        'Update properties of an existing node in the scene. Use get_scene first to find node names. For meshes, you can also update wireframe, physicsEnabled, and physicsMass.',
     inputSchema: jsonSchema<{
         name: string
         position?: [number, number, number]
@@ -191,6 +209,9 @@ export const updateNodeTool = {
         scale?: [number, number, number]
         color?: [number, number, number]
         intensity?: number
+        wireframe?: boolean
+        physicsEnabled?: boolean
+        physicsMass?: number
         rename?: string
     }>({
         type: 'object',
@@ -231,6 +252,21 @@ export const updateNodeTool = {
             intensity: {
                 type: 'number',
                 description: 'New intensity (lights only).',
+            },
+            wireframe: {
+                type: 'boolean',
+                description:
+                    'Render a mesh as wireframe. Updates the mesh material.',
+            },
+            physicsEnabled: {
+                type: 'boolean',
+                description:
+                    'Enable or disable physics on a mesh. Updates mesh metadata.',
+            },
+            physicsMass: {
+                type: 'number',
+                description:
+                    'Set the physics mass on a mesh. Updates mesh metadata.',
             },
             rename: {
                 type: 'string',
