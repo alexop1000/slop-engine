@@ -3,12 +3,7 @@ import { loadEnv } from 'vite'
 import { createAzure } from '@ai-sdk/azure'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import {
-    streamText,
-    generateText,
-    convertToModelMessages,
-    type UIMessage,
-} from 'ai'
+import { streamText, generateText, type UIMessage } from 'ai'
 import { Readable } from 'node:stream'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -73,6 +68,7 @@ import {
     summarizeChatRequest,
     summarizeSubagentRequest,
 } from './agent-llm-log'
+import { convertToModelMessagesWithDataUris } from './message-utils'
 
 // Minimal CoreMessage-compatible type for the subagent endpoint
 type SubagentMessage = {
@@ -248,10 +244,10 @@ export function chatApiPlugin(): Plugin {
                             selectedNode?: { name: string; type: string }
                         }
 
-                    const modelMessages = await convertToModelMessages(
-                        messages,
-                        { ignoreIncompleteToolCalls: true }
-                    )
+                    const modelMessages =
+                        await convertToModelMessagesWithDataUris(messages, {
+                            ignoreIncompleteToolCalls: true,
+                        })
                     const model = getModel(
                         modelSettings,
                         'orchestrator',

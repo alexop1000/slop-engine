@@ -3,12 +3,7 @@ import { cors } from '@elysiajs/cors'
 import { createAzure } from '@ai-sdk/azure'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import {
-    streamText,
-    generateText,
-    convertToModelMessages,
-    type UIMessage,
-} from 'ai'
+import { streamText, generateText, type UIMessage } from 'ai'
 import { readFileSync, existsSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 
@@ -71,6 +66,7 @@ import {
     summarizeChatRequest,
     summarizeSubagentRequest,
 } from '../src/server/agent-llm-log'
+import { convertToModelMessagesWithDataUris } from '../src/server/message-utils'
 
 type SubagentMessage = {
     role: 'user' | 'assistant' | 'tool'
@@ -185,9 +181,10 @@ const api = new Elysia({ prefix: '/api' })
             selectedNode?: { name: string; type: string }
         }
 
-        const modelMessages = await convertToModelMessages(messages, {
-            ignoreIncompleteToolCalls: true,
-        })
+        const modelMessages = await convertToModelMessagesWithDataUris(
+            messages,
+            { ignoreIncompleteToolCalls: true }
+        )
         const model = getModel(modelSettings, 'orchestrator', defaultDeployment)
         const orchestratorModelId =
             modelSettings?.models?.orchestrator?.trim() || defaultDeployment
