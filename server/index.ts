@@ -65,6 +65,12 @@ import {
     tripoPollUntilModelReady,
     tripoSubmitTextToModel,
 } from '../src/server/tripo'
+import {
+    aggregateCostUsd,
+    logAgentLlmCall,
+    summarizeChatRequest,
+    summarizeSubagentRequest,
+} from '../src/server/agent-llm-log'
 
 type SubagentMessage = {
     role: 'user' | 'assistant' | 'tool'
@@ -183,6 +189,9 @@ const api = new Elysia({ prefix: '/api' })
             ignoreIncompleteToolCalls: true,
         })
         const model = getModel(modelSettings, 'orchestrator', defaultDeployment)
+        const orchestratorModelId =
+            modelSettings?.models?.orchestrator?.trim() || defaultDeployment
+        const chatRequestSummary = summarizeChatRequest(messages)
 
         const result = streamText({
             model,
@@ -194,6 +203,25 @@ const api = new Elysia({ prefix: '/api' })
                 present_plan: presentPlanTool,
             },
             messages: modelMessages,
+            onFinish: (event) => {
+                const costUsd = aggregateCostUsd({
+                    providerMetadata: event.providerMetadata,
+                    steps: event.steps,
+                    usage: event.totalUsage,
+                })
+                logAgentLlmCall({
+                    route: 'chat',
+                    provider: modelSettings?.provider ?? 'azure',
+                    modelId: orchestratorModelId,
+                    agentRole: 'orchestrator',
+                    request: chatRequestSummary,
+                    usage: event.usage,
+                    totalUsage: event.totalUsage,
+                    costUsd,
+                    finishReason: event.finishReason,
+                    selectedNode,
+                })
+            },
         })
 
         return result.toUIMessageStreamResponse()
@@ -364,6 +392,9 @@ const api = new Elysia({ prefix: '/api' })
                   }
 
         const model = getModel(modelSettings, agentType, defaultDeployment)
+        const subagentModelId =
+            modelSettings?.models?.[agentType]?.trim() || defaultDeployment
+        const subagentRequestSummary = summarizeSubagentRequest(messages)
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = await generateText({
@@ -375,6 +406,23 @@ const api = new Elysia({ prefix: '/api' })
             messages: messages as any,
             maxOutputTokens: 16384,
             timeout: 110_000,
+        })
+
+        const costUsd = aggregateCostUsd({
+            providerMetadata: result.providerMetadata,
+            steps: result.steps,
+            usage: result.totalUsage,
+        })
+        logAgentLlmCall({
+            route: 'subagent',
+            provider: modelSettings?.provider ?? 'azure',
+            modelId: subagentModelId,
+            agentRole: agentType,
+            request: subagentRequestSummary,
+            usage: result.usage,
+            totalUsage: result.totalUsage,
+            costUsd,
+            finishReason: result.finishReason,
         })
 
         type AnyToolCall = {
