@@ -91,6 +91,8 @@ type ModelSettings = {
         azureResourceName?: string
         openrouterApiKey?: string
         googleApiKey?: string
+        nanobananaApiKey?: string
+        tripoApiKey?: string
     }
 }
 
@@ -300,7 +302,7 @@ export function chatApiPlugin(): Plugin {
 
                     if (webResponse.body) {
                         const nodeStream = Readable.fromWeb(
-                            webResponse.body as WebReadableStream
+                            webResponse.body as unknown as WebReadableStream
                         )
                         nodeStream.pipe(res)
                     } else {
@@ -329,17 +331,6 @@ export function chatApiPlugin(): Plugin {
                     res.end('Method Not Allowed')
                     return
                 }
-                const apiKey = env.TRIPO_API_KEY
-                if (!apiKey) {
-                    res.statusCode = 500
-                    res.setHeader('Content-Type', 'application/json')
-                    res.end(
-                        JSON.stringify({
-                            error: 'TRIPO_API_KEY not configured',
-                        })
-                    )
-                    return
-                }
                 try {
                     const body = await new Promise<string>((resolve) => {
                         let data = ''
@@ -348,10 +339,30 @@ export function chatApiPlugin(): Plugin {
                         })
                         req.on('end', () => resolve(data))
                     })
-                    const { prompt, path, negativePrompt } = JSON.parse(body) as {
+                    const {
+                        prompt,
+                        path,
+                        negativePrompt,
+                        credentials,
+                    } = JSON.parse(body) as {
                         prompt: string
                         path: string
                         negativePrompt?: string
+                        credentials?: {
+                            tripoApiKey?: string
+                        }
+                    }
+                    const apiKey =
+                        credentials?.tripoApiKey?.trim() || env.TRIPO_API_KEY
+                    if (!apiKey) {
+                        res.statusCode = 500
+                        res.setHeader('Content-Type', 'application/json')
+                        res.end(
+                            JSON.stringify({
+                                error: 'TRIPO_API_KEY not configured',
+                            })
+                        )
+                        return
                     }
                     if (!prompt || !path) {
                         res.statusCode = 400
@@ -429,17 +440,6 @@ export function chatApiPlugin(): Plugin {
                     res.end('Method Not Allowed')
                     return
                 }
-                const apiKey = env.NANOBANANA_API_KEY
-                if (!apiKey) {
-                    res.statusCode = 500
-                    res.setHeader('Content-Type', 'application/json')
-                    res.end(
-                        JSON.stringify({
-                            error: 'NANOBANANA_API_KEY not configured',
-                        })
-                    )
-                    return
-                }
                 try {
                     const body = await new Promise<string>((resolve) => {
                         let data = ''
@@ -448,10 +448,31 @@ export function chatApiPlugin(): Plugin {
                         })
                         req.on('end', () => resolve(data))
                     })
-                    const { prompt, path, imageSize } = JSON.parse(body) as {
+                    const {
+                        prompt,
+                        path,
+                        imageSize,
+                        credentials,
+                    } = JSON.parse(body) as {
                         prompt: string
                         path: string
                         imageSize?: string
+                        credentials?: {
+                            nanobananaApiKey?: string
+                        }
+                    }
+                    const apiKey =
+                        credentials?.nanobananaApiKey?.trim() ||
+                        env.NANOBANANA_API_KEY
+                    if (!apiKey) {
+                        res.statusCode = 500
+                        res.setHeader('Content-Type', 'application/json')
+                        res.end(
+                            JSON.stringify({
+                                error: 'NANOBANANA_API_KEY not configured',
+                            })
+                        )
+                        return
                     }
                     if (!prompt || !path) {
                         res.statusCode = 400

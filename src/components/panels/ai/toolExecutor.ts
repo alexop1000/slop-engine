@@ -978,6 +978,7 @@ export function createToolExecutor(
         path: string
         imageSize?: string
     }): Promise<string> => {
+        const credentials = normalizeModelSettings(ctx.modelSettings()).credentials
         const res = await fetch('/api/generate-image', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -985,6 +986,9 @@ export function createToolExecutor(
                 prompt: args.prompt,
                 path: args.path,
                 imageSize: args.imageSize,
+                credentials: {
+                    nanobananaApiKey: credentials.nanobananaApiKey,
+                },
             }),
         })
         if (!res.ok) {
@@ -1034,6 +1038,7 @@ export function createToolExecutor(
         path: string
         negativePrompt?: string
     }): Promise<string> => {
+        const credentials = normalizeModelSettings(ctx.modelSettings()).credentials
         const res = await fetch('/api/generate-tripo-mesh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1041,6 +1046,9 @@ export function createToolExecutor(
                 prompt: args.prompt,
                 path: args.path,
                 negativePrompt: args.negativePrompt,
+                credentials: {
+                    tripoApiKey: credentials.tripoApiKey,
+                },
             }),
         })
         if (!res.ok) {
