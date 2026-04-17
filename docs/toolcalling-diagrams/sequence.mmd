@@ -1,0 +1,52 @@
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant P as AIPanel (Solid)
+    participant C as /api/chat<br/>(streamText)
+    participant L as LLM Provider
+    participant E as toolExecutor
+    participant S as Scene / Stores
+    participant A as /api/subagent<br/>(generateText)
+
+    U->>P: Types prompt + attachments
+    P->>P: captureCheckpoint()<br/>for undo
+    P->>C: POST messages,<br/>modelSettings, selectedNode
+    C->>L: streamText(coordinator prompt,<br/>orchestrator tools)
+    L-->>C: stream tokens + tool_call parts
+    C-->>P: SSE UIMessageStream
+
+    loop For each tool-* part (state=input-available)
+        P->>E: executeTool(name, input, id)
+
+        alt get_scene / add_mesh / update_node / ...
+            E->>S: pushUndoState + mutate Babylon scene
+            S-->>E: result string
+        else create_script / edit_script / generate_image / ...
+            E->>S: read/write IndexedDB asset store
+            E-->>C: (optional) /api/typecheck, /api/generate-image
+        else ask_clarification / present_plan
+            E->>P: render plan UI, await user choice
+            P-->>E: resolved payload
+        else spawn_agent
+            loop <= MAX_AGENT_STEPS (20)
+                E->>A: POST conversation + agentType<br/>(scene | script | ui | asset | test)
+                A->>L: generateText(role prompt,<br/>role-specific tools)
+                L-->>A: text + toolCalls + finishReason
+                A-->>E: step result
+                loop each sub-agent tool call
+                    E->>E: executeTool (same dispatcher)
+                    E->>S: mutate scene / stores
+                end
+                Note over E: append tool results as<br/>role:tool message, loop
+            end
+        end
+
+        E-->>P: chat.addToolOutput(result)
+    end
+
+    Note over P: sendAutomaticallyWhen: all tool parts<br/>resolved -> round trip (<= MAX_ROUND_TRIPS=12)
+    P->>C: follow-up request with tool outputs
+    C->>L: streamText (with accumulated context)
+    L-->>C: final assistant text
+    C-->>P: stream tokens
+    P->>U: Render assistant message<br/>+ checkpoint-undo button

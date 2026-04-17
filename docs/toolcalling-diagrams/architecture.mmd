@@ -1,0 +1,50 @@
+flowchart LR
+    USER([User])
+
+    subgraph Browser["Browser - Solid.js + BabylonJS"]
+        UI["AIPanel.tsx<br/>useChat + DefaultChatTransport"]
+        EXEC["toolExecutor.ts<br/>executeTool dispatcher"]
+        SCENE["BabylonJS Scene<br/>SceneOperations.ts"]
+        STORE["assetStore (IndexedDB)<br/>scripts, models, images"]
+        PLAN["planningStore<br/>ask_clarification / present_plan"]
+        SUBST["subagentStore<br/>live sub-agent UI state"]
+    end
+
+    subgraph Server["Elysia server (Bun) - server/index.ts"]
+        CHAT["/api/chat<br/>streamText - orchestrator"]
+        SUB["/api/subagent<br/>generateText - sub-agent"]
+        AUX["/api/typecheck<br/>/api/generate-image<br/>/api/generate-tripo-mesh<br/>/api/lookup-scripting-api"]
+        TOOLS["src/server/tools.ts<br/>JSON-schema tool definitions"]
+        PROMPTS["src/server/prompts.ts<br/>coordinator + role prompts"]
+    end
+
+    subgraph Providers["LLM providers (AI SDK)"]
+        AZ[Azure OpenAI]
+        OR[OpenRouter]
+        GG[Google Gemini]
+    end
+
+    USER -->|prompt + images| UI
+    UI -->|POST messages,<br/>modelSettings, selectedNode| CHAT
+    CHAT -->|tools: get_scene, spawn_agent,<br/>ask_clarification, present_plan| TOOLS
+    CHAT --> PROMPTS
+    CHAT -->|streamText| Providers
+    Providers -->|tokens + tool_call parts| CHAT
+    CHAT -->|SSE UIMessageStream| UI
+
+    UI -->|tool part<br/>state=input-available| EXEC
+    EXEC -->|scene mutations| SCENE
+    EXEC -->|script / asset I/O| STORE
+    EXEC -->|blocking UI prompts| PLAN
+    EXEC -->|side-effect HTTP| AUX
+    EXEC -->|spawn_agent loop| SUB
+    EXEC -->|live status| SUBST
+
+    SUB --> TOOLS
+    SUB --> PROMPTS
+    SUB -->|generateText| Providers
+    Providers -->|text + toolCalls| SUB
+    SUB -->|text, toolCalls,<br/>finishReason| EXEC
+
+    EXEC -->|addToolOutput| UI
+    UI -->|sendAutomaticallyWhen<br/>round trip| CHAT
