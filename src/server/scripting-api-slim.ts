@@ -23,6 +23,8 @@ declare class Script {
     spawn(type: 'box'|'sphere'|'cylinder'|'cone'|'torus'|'plane', options?: SpawnOptions): Mesh
     clone(source: Mesh, name?: string): Mesh
     spawnPrefab(path: string, options?: { name?: string; position?: Vector3; rotation?: Vector3; scale?: Vector3 }): Promise<SceneNode>
+    spawnPrefab(path: string, onSpawn: (node: SceneNode) => void): void
+    spawnPrefab(path: string, options: { name?: string; position?: Vector3; rotation?: Vector3; scale?: Vector3 } | undefined, onSpawn: (node: SceneNode) => void): void
     addPhysics(mesh: Mesh, mass?: number, restitution?: number): void
     destroyNode(node: SceneNode): void
     raycast(origin: Vector3, direction: Vector3, maxDistance?: number): RaycastHit | null
@@ -43,6 +45,7 @@ declare class Input {
     readonly mouseY: number
     readonly mouseDeltaX: number
     readonly mouseDeltaY: number
+    readonly isMouseLocked: boolean
     isMouseButtonDown(button: number): boolean
     lockMouse(): void
     unlockMouse(): void
@@ -51,7 +54,8 @@ declare class Input {
 // Core types
 declare class Vector3 { x: number; y: number; z: number
     add(o: Vector3): Vector3; subtract(o: Vector3): Vector3; scale(f: number): Vector3
-    clone(): Vector3; normalize(): Vector3; length(): number
+    addInPlace(o: Vector3): Vector3; subtractInPlace(o: Vector3): Vector3; scaleInPlace(f: number): Vector3
+    clone(): Vector3; normalize(): Vector3; length(): number; lengthSquared(): number
     static Up(): Vector3; static Down(): Vector3; static Forward(): Vector3; static Backward(): Vector3; static Left(): Vector3; static Right(): Vector3
     static Distance(a: Vector3, b: Vector3): number
 }
@@ -62,7 +66,8 @@ declare function rgb(r: number, g: number, b: number): Color3
 // Scene graph
 declare class SceneNode { name: string; parent: SceneNode | null }
 declare class TransformNode extends SceneNode { position: Vector3; rotation: Vector3; scaling: Vector3; getAbsolutePosition(): Vector3 }
-declare class Mesh extends TransformNode { material: Material | null; physicsBody: PhysicsBody | null; getBoundingSize(): Vector3 }
+declare class AbstractMesh extends TransformNode { isVisible: boolean; isPickable: boolean; visibility: number; material: Material | null; checkCollisions: boolean; receiveShadows: boolean }
+declare class Mesh extends AbstractMesh { physicsBody: PhysicsBody | null; getBoundingSize(): Vector3 }
 declare class PhysicsBody { setLinearVelocity(v: Vector3): void; getLinearVelocity(): Vector3; applyImpulse(i: Vector3, loc: Vector3): void }
 declare class Light extends SceneNode { intensity: number; diffuse: Color3 }
 declare class Camera extends SceneNode { position: Vector3; rotation: Vector3; getDirection(localAxis: Vector3): Vector3 }
