@@ -44,14 +44,54 @@ interface RunRow {
 
 type RunEvent =
     | { t: number; type: 'run_started'; scenario: ScenarioId; game: GameId }
-    | { t: number; type: 'iteration_started'; index: number; kind: IterationKind; prompt: string }
-    | { t: number; type: 'llm_call'; iteration: number; inputTokens: number; outputTokens: number; cachedTokens: number; durationMs: number; model: string; finishReason?: string }
-    | { t: number; type: 'tool_call'; iteration: number; toolName: string; inputPreview: string; outputPreview?: string; error?: string }
+    | {
+          t: number
+          type: 'iteration_started'
+          index: number
+          kind: IterationKind
+          prompt: string
+      }
+    | {
+          t: number
+          type: 'llm_call'
+          iteration: number
+          inputTokens: number
+          outputTokens: number
+          cachedTokens: number
+          durationMs: number
+          model: string
+          finishReason?: string
+      }
+    | {
+          t: number
+          type: 'tool_call'
+          iteration: number
+          toolName: string
+          inputPreview: string
+          outputPreview?: string
+          error?: string
+      }
     | { t: number; type: 'text_chunk'; iteration: number; text: string }
-    | { t: number; type: 'awaiting_input'; iteration: number; kind: AwaitingInputKind; payload?: unknown }
+    | {
+          t: number
+          type: 'awaiting_input'
+          iteration: number
+          kind: AwaitingInputKind
+          payload?: unknown
+      }
     | { t: number; type: 'iteration_ended'; index: number }
-    | { t: number; type: 'runtime_error'; message: string; duringIteration: boolean }
-    | { t: number; type: 'run_stopped'; reason: 'user' | 'error'; error?: string }
+    | {
+          t: number
+          type: 'runtime_error'
+          message: string
+          duringIteration: boolean
+      }
+    | {
+          t: number
+          type: 'run_stopped'
+          reason: 'user' | 'error'
+          error?: string
+      }
 
 const GAMES: GameId[] = ['dodger', 'breakout', 'platformer']
 const SCENARIOS: ScenarioId[] = ['slop', 'opencode-plain', 'opencode-roblox']
@@ -66,8 +106,7 @@ async function api<T>(
             init?.body !== undefined
                 ? { 'Content-Type': 'application/json' }
                 : undefined,
-        body:
-            init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+        body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
     }
     const res = await fetch(`/api/harness${path}`, opts)
     if (!res.ok) {
@@ -82,6 +121,17 @@ function fmtMs(ms: number | null | undefined): string {
     const s = Math.floor(ms / 1000)
     const m = Math.floor(s / 60)
     return m > 0 ? `${m}m ${s % 60}s` : `${s}s`
+}
+
+function hasCompleteRubrics(run: RunRow): boolean {
+    return (
+        run.rubric_movement !== null &&
+        run.rubric_win !== null &&
+        run.rubric_lose !== null &&
+        run.rubric_no_crash !== null &&
+        run.rubric_ui !== null &&
+        run.rubric_camera !== null
+    )
 }
 
 const ProviderStatus: Component = () => {
@@ -122,8 +172,8 @@ const ProviderStatus: Component = () => {
                     state() === 'ok'
                         ? 'text-green-400'
                         : state() === 'down'
-                        ? 'text-red-400'
-                        : 'text-yellow-400'
+                          ? 'text-red-400'
+                          : 'text-yellow-400'
                 }
             >
                 {state() === 'ok' ? detail() || 'ok' : state()}
@@ -271,8 +321,8 @@ const NewRunForm: Component<{ onStarted: (runId: string) => void }> = (
                                             runNumber() === n
                                                 ? 'bg-blue-600 border-blue-500 text-white'
                                                 : used()
-                                                ? 'bg-gray-900 border-gray-800 text-gray-500 hover:bg-gray-800'
-                                                : 'bg-gray-800 border-gray-700 hover:bg-gray-700'
+                                                  ? 'bg-gray-900 border-gray-800 text-gray-500 hover:bg-gray-800'
+                                                  : 'bg-gray-800 border-gray-700 hover:bg-gray-700'
                                         }`}
                                         onClick={() => pickRunNumber(n)}
                                         title={
@@ -343,7 +393,12 @@ const LiveRunView: Component<{
         for (let i = all.length - 1; i >= 0; i--) {
             const e = all[i]
             if (e.type === 'awaiting_input') return e.kind
-            if (e.type === 'iteration_started' || e.type === 'llm_call' || e.type === 'tool_call') return null
+            if (
+                e.type === 'iteration_started' ||
+                e.type === 'llm_call' ||
+                e.type === 'tool_call'
+            )
+                return null
         }
         return null
     }
@@ -488,9 +543,7 @@ const LiveRunView: Component<{
                     <span>out {totals().outputTokens}</span>
                     <span>tools {totals().toolCalls}</span>
                     <span
-                        class={
-                            totals().runtimeErrors > 0 ? 'text-red-400' : ''
-                        }
+                        class={totals().runtimeErrors > 0 ? 'text-red-400' : ''}
                         title="Runtime errors fired while no LLM iteration was active"
                     >
                         errors {totals().runtimeErrors}
@@ -511,9 +564,7 @@ const LiveRunView: Component<{
                 ref={scrollEl}
                 class="flex-1 overflow-auto px-4 py-2 font-mono text-xs space-y-0.5"
             >
-                <For each={events()}>
-                    {(e) => <EventLine event={e} />}
-                </For>
+                <For each={events()}>{(e) => <EventLine event={e} />}</For>
             </div>
 
             <Show when={!stopped()}>
@@ -625,7 +676,8 @@ const EventLine: Component<{ event: RunEvent }> = (props) => {
             case 'iteration_started':
                 return `iter ${e.index} (${e.kind}): ${e.prompt.slice(0, 80)}`
             case 'llm_call': {
-                const cached = e.cachedTokens > 0 ? ` cached=${e.cachedTokens}` : ''
+                const cached =
+                    e.cachedTokens > 0 ? ` cached=${e.cachedTokens}` : ''
                 return `llm_call in=${e.inputTokens}${cached} out=${e.outputTokens} ${e.durationMs}ms finish=${e.finishReason ?? '?'}`
             }
             case 'tool_call':
@@ -711,16 +763,16 @@ const RubricForm: Component<{
     const [movement, setMovement] = createSignal<RubricScore>(
         initial(props.run.rubric_movement)
     )
-    const [win, setWin] = createSignal<RubricScore>(initial(props.run.rubric_win))
+    const [win, setWin] = createSignal<RubricScore>(
+        initial(props.run.rubric_win)
+    )
     const [lose, setLose] = createSignal<RubricScore>(
         initial(props.run.rubric_lose)
     )
     const [noCrash, setNoCrash] = createSignal<RubricScore>(
         initial(props.run.rubric_no_crash)
     )
-    const [ui, setUi] = createSignal<RubricScore>(
-        initial(props.run.rubric_ui)
-    )
+    const [ui, setUi] = createSignal<RubricScore>(initial(props.run.rubric_ui))
     const [camera, setCamera] = createSignal<RubricScore>(
         initial(props.run.rubric_camera)
     )
@@ -902,7 +954,7 @@ const HistoryView: Component<{
             if (r.status === 'running' || r.status === 'idle') running += 1
             else if (r.status === 'stopped') {
                 stopped += 1
-                if (r.rubric_movement === null) ungraded += 1
+                if (!hasCompleteRubrics(r)) ungraded += 1
             } else if (r.status === 'graded') graded += 1
         }
         return { total: rs.length, running, stopped, graded, ungraded }
@@ -914,7 +966,7 @@ const HistoryView: Component<{
         if (f === 'all') return rs
         if (f === 'ungraded') {
             return rs.filter(
-                (r) => r.status === 'stopped' && r.rubric_movement === null
+                (r) => r.status === 'stopped' && !hasCompleteRubrics(r)
             )
         }
         if (f === 'running') {
@@ -1012,9 +1064,7 @@ const HistoryView: Component<{
                     disabled={exportingIters() || stats().total === 0}
                     title="Download per-iteration breakdown CSV"
                 >
-                    {exportingIters()
-                        ? 'Exporting…'
-                        : 'Export iterations CSV'}
+                    {exportingIters() ? 'Exporting…' : 'Export iterations CSV'}
                 </button>
                 <button
                     class="text-xs px-2 py-1 border border-gray-700 rounded hover:bg-gray-800"
@@ -1041,8 +1091,18 @@ const HistoryView: Component<{
                         <th class="text-right">iter</th>
                         <th class="text-right">tokens</th>
                         <th class="text-right">tools</th>
-                        <th class="text-right" title="Runtime errors after LLM finished">err</th>
-                        <th class="text-right" title="Active LLM time (sum of iteration durations)">duration</th>
+                        <th
+                            class="text-right"
+                            title="Runtime errors after LLM finished"
+                        >
+                            err
+                        </th>
+                        <th
+                            class="text-right"
+                            title="Active LLM time (sum of iteration durations)"
+                        >
+                            duration
+                        </th>
                         <th class="text-left">rubric</th>
                         <th />
                     </tr>
@@ -1068,12 +1128,14 @@ const HistoryView: Component<{
                                 }
                                 const rubricScores: Array<RubricScore | null> =
                                     r.rubric_movement === null
-                                        ? [null, null, null, null]
+                                        ? [null, null, null, null, null, null]
                                         : [
                                               r.rubric_movement,
                                               r.rubric_win,
                                               r.rubric_lose,
                                               r.rubric_no_crash,
+                                              r.rubric_ui,
+                                              r.rubric_camera,
                                           ]
                                 const isExpanded = () => expanded() === r.id
                                 const canGrade = () =>

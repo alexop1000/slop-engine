@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS runs (
     rubric_win           INTEGER,
     rubric_lose          INTEGER,
     rubric_no_crash      INTEGER,
+    rubric_ui            INTEGER,
+    rubric_camera        INTEGER,
     rubric_failure_mode  TEXT,
     rubric_notes         TEXT,
     graded_at            INTEGER,
@@ -112,6 +114,8 @@ export function getDb(): Database {
     db.exec('PRAGMA journal_mode = WAL')
     db.exec(SCHEMA)
     migrateAddColumn(db, 'runs', 'runtime_errors', 'INTEGER DEFAULT 0')
+    migrateAddColumn(db, 'runs', 'rubric_ui', 'INTEGER')
+    migrateAddColumn(db, 'runs', 'rubric_camera', 'INTEGER')
     return db
 }
 
@@ -199,6 +203,8 @@ export function submitRubric(
             rubric_win = ?,
             rubric_lose = ?,
             rubric_no_crash = ?,
+            rubric_ui = ?,
+            rubric_camera = ?,
             rubric_failure_mode = ?,
             rubric_notes = ?,
             graded_at = ?,
@@ -209,6 +215,8 @@ export function submitRubric(
             r.win,
             r.lose,
             r.noCrash,
+            r.ui,
+            r.camera,
             r.failureMode,
             r.notes,
             gradedAt,
