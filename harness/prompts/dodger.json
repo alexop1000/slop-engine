@@ -1,8 +1,8 @@
 {
-    "base": "Build a game called 'Dodger'. The player controls a block that moves left and right along the bottom of a play area using the A and D keys. Blocks fall from the top of the area at a steady rate, gradually speeding up as the game progresses. The player must avoid being hit by falling blocks. The player wins by surviving for 30 seconds. The player loses if they are hit by a falling block. Display a timer visible to the player and a win/lose screen when the game ends.",
+    "base": "Build a 3D game called 'Dodger'. The game is rendered in 3D with a perspective camera (not a 2D canvas). The player controls a 3D block that moves left and right along the bottom of a 3D play area using the A and D keys. 3D blocks fall from the top of the area at a steady rate, gradually speeding up as the game progresses. The player must avoid being hit by falling blocks. The player wins by surviving for 30 seconds. The player loses if they are hit by a falling block. Display a timer visible to the player and a win/lose screen when the game ends.",
     "perScenario": {
         "slop": "",
-        "opencode-plain": "Using Babylon.js 8 (already loaded from CDN in index.html), write the entire game in game.js. Do not edit index.html. ",
+        "opencode-plain": "Using Babylon.js 8 (already loaded from CDN in index.html), write the entire game in game.js. Use a BABYLON.Scene with a perspective camera (ArcRotateCamera or UniversalCamera), proper 3D lighting, and 3D meshes (BABYLON.MeshBuilder.CreateBox / CreateSphere / etc.). Do NOT use the 2D canvas API or draw shapes with 2D context — the result must be rendered by Babylon's 3D engine. Do not edit index.html. ",
         "opencode-roblox": "Using Roblox Studio via the provided MCP tools, build the game in a blank baseplate place. Place all code in ServerScriptService or StarterPlayerScripts as appropriate. "
     }
 }

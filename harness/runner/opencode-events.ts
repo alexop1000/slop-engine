@@ -4,6 +4,7 @@ export interface OpencodeEvent {
     type: string
     timestamp?: number
     sessionID?: string
+    part?: unknown
     [k: string]: unknown
 }
 
@@ -20,9 +21,15 @@ interface ParseContext {
 /**
  * Convert one opencode stdout event into zero or more harness RunEvents.
  *
- * The opencode event schema is not versioned and keys vary across releases.
- * This parser is permissive: it extracts whatever tokens/tool-calls it
- * recognizes and ignores the rest. Unknown shapes don't throw.
+ * Opencode v1.14.x event shape:
+ * - `type: "step_start"`  — ignored (no harness equivalent).
+ * - `type: "text"`        — `part.text` is assistant commentary.
+ * - `type: "tool_use"`    — `part.tool`, `part.callID`, `part.state.{status,input,output,error,time}`.
+ * - `type: "step_finish"` — `part.reason`, `part.tokens.{input,output,cache.read,total}`, `part.cost`.
+ * - `type: "error"`       — top-level `error.data.message` / `error.name`.
+ *
+ * This parser matches that shape exactly; unknown event types produce no
+ * RunEvents so new opencode versions that add events won't break the run.
  */
 export function parseOpencodeEvent(
     ev: OpencodeEvent,
@@ -33,148 +40,112 @@ export function parseOpencodeEvent(
         typeof ev.timestamp === 'number' && ev.timestamp > 0
             ? ev.timestamp
             : Date.now()
+    const part = asRecord(ev.part) ?? {}
 
-    const usage = pickUsage(ev)
-    if (usage) {
-        runEvents.push({
-            t,
-            type: 'llm_call',
-            iteration: ctx.iteration,
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-            cachedTokens: usage.cachedTokens,
-            durationMs: usage.durationMs ?? 0,
-            model: ctx.modelId,
-            finishReason:
-                typeof ev.finishReason === 'string'
-                    ? ev.finishReason
-                    : undefined,
-        })
-    }
-
-    const toolCall = pickToolCall(ev)
-    if (toolCall) {
-        runEvents.push({
-            t,
-            type: 'tool_call',
-            iteration: ctx.iteration,
-            toolName: toolCall.toolName,
-            inputPreview: safePreview(toolCall.input, 200),
-            outputPreview:
-                toolCall.output === undefined
-                    ? undefined
-                    : safePreview(toolCall.output, 200),
-            error: toolCall.error,
-        })
-    }
-
-    const text = pickTextChunk(ev)
-    if (text) {
-        runEvents.push({
-            t,
-            type: 'text_chunk',
-            iteration: ctx.iteration,
-            text,
-        })
-    }
-
-    const errorText = pickError(ev)
-    if (errorText) {
-        runEvents.push({
-            t,
-            type: 'text_chunk',
-            iteration: ctx.iteration,
-            text: `[opencode error] ${errorText}`,
-        })
+    switch (ev.type) {
+        case 'text': {
+            const text = str(part.text)
+            if (text) {
+                runEvents.push({
+                    t,
+                    type: 'text_chunk',
+                    iteration: ctx.iteration,
+                    text,
+                })
+            }
+            break
+        }
+        case 'tool_use': {
+            const toolName =
+                str(part.tool) ??
+                str(asRecord(part.tool)?.name) ??
+                'unknown-tool'
+            const state = asRecord(part.state) ?? {}
+            const status = str(state.status)
+            const input = state.input
+            const output = state.output
+            const error =
+                status === 'error'
+                    ? str(state.error) ??
+                      str(asRecord(state.error)?.message) ??
+                      'error'
+                    : undefined
+            const time = asRecord(state.time)
+            const startMs = num(time?.start)
+            const endMs = num(time?.end)
+            const toolTs = endMs ?? startMs ?? t
+            runEvents.push({
+                t: toolTs,
+                type: 'tool_call',
+                iteration: ctx.iteration,
+                toolName,
+                inputPreview: safePreview(input, 200),
+                outputPreview:
+                    output === undefined
+                        ? undefined
+                        : safePreview(output, 200),
+                error,
+            })
+            break
+        }
+        case 'step_finish': {
+            const tokens = asRecord(part.tokens) ?? {}
+            const cache = asRecord(tokens.cache) ?? {}
+            const inputTokens = num(tokens.input) ?? 0
+            const outputTokens = num(tokens.output) ?? 0
+            const cachedTokens = num(cache.read) ?? 0
+            const finishReason = str(part.reason)
+            runEvents.push({
+                t,
+                type: 'llm_call',
+                iteration: ctx.iteration,
+                inputTokens,
+                outputTokens,
+                cachedTokens,
+                // Opencode doesn't expose per-step duration directly; leave 0
+                // and rely on harness-side timestamps (start-of-run → event.t)
+                // for wall-clock measurement.
+                durationMs: 0,
+                model: ctx.modelId,
+                finishReason,
+            })
+            break
+        }
+        case 'error': {
+            const errRec = asRecord(ev.error)
+            const data = asRecord(errRec?.data)
+            const message =
+                str(data?.message) ??
+                str(errRec?.name) ??
+                str(ev.error) ??
+                'unknown opencode error'
+            runEvents.push({
+                t,
+                type: 'text_chunk',
+                iteration: ctx.iteration,
+                text: `[opencode error] ${message}`,
+            })
+            break
+        }
+        // step_start and any unrecognized event type: no harness event.
+        default:
+            break
     }
 
     return {
-        sessionId: typeof ev.sessionID === 'string' ? ev.sessionID : undefined,
+        sessionId: str(ev.sessionID),
         runEvents,
     }
-}
-
-function pickUsage(ev: OpencodeEvent): {
-    inputTokens: number
-    outputTokens: number
-    cachedTokens: number
-    durationMs?: number
-} | null {
-    const nested =
-        asRecord(ev.usage) ??
-        asRecord((asRecord(ev.message) ?? {}).usage) ??
-        asRecord((asRecord(ev.response) ?? {}).usage)
-    if (!nested) return null
-    const input =
-        num(nested.input_tokens) ??
-        num(nested.inputTokens) ??
-        num(nested.input)
-    const output =
-        num(nested.output_tokens) ??
-        num(nested.outputTokens) ??
-        num(nested.output)
-    if (input === undefined && output === undefined) return null
-    return {
-        inputTokens: input ?? 0,
-        outputTokens: output ?? 0,
-        cachedTokens:
-            num(nested.cached_tokens) ?? num(nested.cachedTokens) ?? 0,
-        durationMs:
-            num(ev.durationMs) ??
-            num(ev.duration) ??
-            num((asRecord(ev.message) ?? {}).durationMs) ??
-            undefined,
-    }
-}
-
-function pickToolCall(ev: OpencodeEvent): {
-    toolName: string
-    input: unknown
-    output?: unknown
-    error?: string
-} | null {
-    if (typeof ev.type !== 'string') return null
-    if (!ev.type.includes('tool')) return null
-    const toolName =
-        (typeof ev.toolName === 'string' && ev.toolName) ||
-        (typeof ev.tool === 'string' && ev.tool) ||
-        (asRecord(ev.tool)?.name as string | undefined) ||
-        'unknown-tool'
-    const input = ev.input ?? ev.args ?? asRecord(ev.tool)?.input
-    const output = ev.output ?? ev.result
-    const error =
-        typeof ev.error === 'string'
-            ? ev.error
-            : asRecord(ev.error)?.message !== undefined
-                ? String(asRecord(ev.error)?.message)
-                : undefined
-    return { toolName, input, output, error }
-}
-
-function pickTextChunk(ev: OpencodeEvent): string | undefined {
-    if (typeof ev.text === 'string' && ev.text) return ev.text
-    if (typeof ev.content === 'string' && ev.content) return ev.content
-    const msg = asRecord(ev.message)
-    if (msg && typeof msg.text === 'string' && msg.text) return msg.text
-    return undefined
-}
-
-function pickError(ev: OpencodeEvent): string | undefined {
-    if (ev.type !== 'error') return undefined
-    const err = asRecord(ev.error)
-    if (!err) return 'unknown error'
-    const data = asRecord(err.data)
-    return (
-        (typeof data?.message === 'string' && data.message) ||
-        (typeof err.name === 'string' && err.name) ||
-        'unknown error'
-    )
 }
 
 function asRecord(v: unknown): Record<string, unknown> | null {
     return v && typeof v === 'object' && !Array.isArray(v)
         ? (v as Record<string, unknown>)
         : null
+}
+
+function str(v: unknown): string | undefined {
+    return typeof v === 'string' && v.length > 0 ? v : undefined
 }
 
 function num(v: unknown): number | undefined {

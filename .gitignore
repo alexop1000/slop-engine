@@ -32,4 +32,7 @@ harness/harness.db
 harness/harness.db-journal
 harness/harness.db-wal
 harness/harness.db-shm
+# Legacy runs dir from before runs were moved outside the repo for isolation.
+# New runs land in <homedir>/.slop-harness/runs; this entry kept to ignore
+# any stray files left over from earlier sessions.
 harness/runs/

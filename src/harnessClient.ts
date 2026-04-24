@@ -76,3 +76,23 @@ export function buildHarnessBodyFields(options: {
     }
     return fields
 }
+
+/**
+ * Forward a runtime error from the editor to the harness backend. The server
+ * decides whether to count it (only errors that fire while no iteration is
+ * active are counted as "post-LLM" runtime errors). No-op when not in harness
+ * mode. Failures are swallowed — reporting must never disrupt the editor.
+ */
+export function reportHarnessRuntimeError(message: string): void {
+    if (!harnessRunId) return
+    void fetch(
+        `/api/harness/runs/${encodeURIComponent(harnessRunId)}/runtime-error`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message }),
+        }
+    ).catch(() => {
+        // Reporting failures must not surface to the editor.
+    })
+}

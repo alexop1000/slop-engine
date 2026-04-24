@@ -5,6 +5,7 @@ import type {
     FailureMode,
     GameId,
     IterationKind,
+    RubricScore,
     RunStatus,
     RunRubric,
     RunSummary,
@@ -36,6 +37,8 @@ CREATE TABLE IF NOT EXISTS runs (
     rubric_failure_mode  TEXT,
     rubric_notes         TEXT,
     graded_at            INTEGER,
+
+    runtime_errors       INTEGER DEFAULT 0,
 
     UNIQUE(game, scenario, run_number)
 );
@@ -75,13 +78,16 @@ export interface RunRow {
     total_cached_tokens: number | null
     total_iterations: number | null
     total_tool_calls: number | null
-    rubric_movement: number | null
-    rubric_win: number | null
-    rubric_lose: number | null
-    rubric_no_crash: number | null
+    rubric_movement: RubricScore | null
+    rubric_win: RubricScore | null
+    rubric_lose: RubricScore | null
+    rubric_no_crash: RubricScore | null
+    rubric_ui: RubricScore | null
+    rubric_camera: RubricScore | null
     rubric_failure_mode: FailureMode | null
     rubric_notes: string | null
     graded_at: number | null
+    runtime_errors: number | null
 }
 
 export interface IterationRow {
@@ -105,7 +111,22 @@ export function getDb(): Database {
     db = new Database(DB_PATH, { create: true })
     db.exec('PRAGMA journal_mode = WAL')
     db.exec(SCHEMA)
+    migrateAddColumn(db, 'runs', 'runtime_errors', 'INTEGER DEFAULT 0')
     return db
+}
+
+function migrateAddColumn(
+    database: Database,
+    table: string,
+    column: string,
+    defn: string
+): void {
+    try {
+        database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${defn}`)
+    } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (!/duplicate column name/i.test(msg)) throw e
+    }
 }
 
 export function insertRun(row: {
@@ -151,7 +172,8 @@ export function updateRunSummary(runId: string, s: RunSummary): void {
             total_output_tokens = ?,
             total_cached_tokens = ?,
             total_iterations = ?,
-            total_tool_calls = ?
+            total_tool_calls = ?,
+            runtime_errors = ?
          WHERE id = ?`,
         [
             s.totalDurationMs,
@@ -160,6 +182,7 @@ export function updateRunSummary(runId: string, s: RunSummary): void {
             s.totalCachedTokens,
             s.totalIterations,
             s.totalToolCalls,
+            s.runtimeErrors,
             runId,
         ]
     )
@@ -272,6 +295,18 @@ export function listIterations(runId: string): IterationRow[] {
     return getDb()
         .query('SELECT * FROM iterations WHERE run_id = ? ORDER BY index_ ASC')
         .all(runId) as IterationRow[]
+}
+
+/**
+ * Highest iteration index currently stored for this run, or -1 if none.
+ * Used to resume numbering after a server restart so we don't collide with
+ * existing rows on the iterations primary key.
+ */
+export function maxIterationIndex(runId: string): number {
+    const row = getDb()
+        .query('SELECT MAX(index_) AS max_idx FROM iterations WHERE run_id = ?')
+        .get(runId) as { max_idx: number | null } | null
+    return row?.max_idx ?? -1
 }
 
 export function deleteRun(runId: string): void {

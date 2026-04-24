@@ -1,5 +1,5 @@
 import { Mesh } from 'babylonjs'
-import { onMount } from 'solid-js'
+import { createEffect, onMount } from 'solid-js'
 import {
     ResetConfirmModal,
     EditorTopbar,
@@ -11,9 +11,19 @@ import { clearAllSessions } from '../chatHistoryStore'
 import { useEditorState } from '../hooks/useEditorState'
 import { useEditorEngine } from '../hooks/useEditorEngine'
 import {
+    reportHarnessRuntimeError,
     setHarnessRunId,
     setPendingInitialPrompt,
 } from '../harnessClient'
+import { logs } from '../scripting/consoleStore'
+
+function safeStringify(value: unknown): string {
+    try {
+        return JSON.stringify(value)
+    } catch {
+        return String(value)
+    }
+}
 
 export default function Home() {
     const state = useEditorState()
@@ -36,6 +46,25 @@ export default function Home() {
         } catch (e) {
             console.error('[harness] init failed', e)
         }
+
+        // Forward script-runtime errors to the harness. We snapshot the count
+        // at subscribe time so prior logs (from a previous run, restored via
+        // HMR) aren't replayed.
+        let lastSeen = logs().length
+        createEffect(() => {
+            const all = logs()
+            for (let i = lastSeen; i < all.length; i++) {
+                const entry = all[i]
+                if (entry.level !== 'error') continue
+                const message = entry.args
+                    .map((a) =>
+                        typeof a === 'string' ? a : safeStringify(a)
+                    )
+                    .join(' ')
+                reportHarnessRuntimeError(message)
+            }
+            lastSeen = all.length
+        })
     })
 
     const handleReset = async () => {

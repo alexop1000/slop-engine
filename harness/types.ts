@@ -74,6 +74,12 @@ export type RunEvent =
       }
     | {
           t: number
+          type: 'runtime_error'
+          message: string
+          duringIteration: boolean
+      }
+    | {
+          t: number
           type: 'run_stopped'
           reason: 'user' | 'error'
           error?: string
@@ -99,19 +105,33 @@ export interface RunMeta {
 }
 
 export interface RunSummary {
+    /** Sum of per-iteration durations (active LLM/runner time). Excludes idle time between iterations. */
     totalDurationMs: number
     totalInputTokens: number
     totalOutputTokens: number
     totalCachedTokens: number
     totalIterations: number
     totalToolCalls: number
+    /** Count of runtime errors reported after the most recent iteration ended (i.e. while LLM was idle). */
+    runtimeErrors: number
+}
+
+/** Rubric score per criterion: 0 = no, 1 = partially, 2 = yes. */
+export type RubricScore = 0 | 1 | 2
+
+export const RUBRIC_LABELS: Record<RubricScore, 'no' | 'partially' | 'yes'> = {
+    0: 'no',
+    1: 'partially',
+    2: 'yes',
 }
 
 export interface RunRubric {
-    movement: 0 | 1
-    win: 0 | 1
-    lose: 0 | 1
-    noCrash: 0 | 1
+    movement: RubricScore
+    win: RubricScore
+    lose: RubricScore
+    noCrash: RubricScore
+    ui: RubricScore
+    camera: RubricScore
     failureMode: FailureMode
     notes: string
 }
@@ -137,4 +157,12 @@ export interface HarnessConfig {
     provider: 'azure' | 'lmstudio'
     azure?: AzureProviderConfig
     lmstudio?: LmStudioProviderConfig
+    /**
+     * Absolute (or ${ENV_VAR}-expanded) directory where per-run artifact dirs
+     * live. Defaults to `<os homedir>/.slop-harness/runs`. MUST NOT be a
+     * subdirectory of the slop-engine repo — opencode walks up from its cwd
+     * looking for git roots and will treat this repo as its workspace if the
+     * run dir sits inside it.
+     */
+    runsDir?: string
 }

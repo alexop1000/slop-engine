@@ -1,4 +1,5 @@
 {
+    "runsDir": "${USERPROFILE}/.slop-harness/runs",
     "provider": "azure",
     "azure": {
         "resourceName": "${AZURE_OPENAI_RESOURCE_NAME}",

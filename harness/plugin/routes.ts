@@ -35,7 +35,11 @@ import {
     getRunner,
     registerRunner,
 } from './runner-registry'
-import { dropRunState, endIteration } from './slop-instrument'
+import {
+    dropRunState,
+    endIteration,
+    getCurrentIteration,
+} from './slop-instrument'
 import { formatSse, subscribe } from './sse'
 
 const GAME_IDS: GameId[] = ['dodger', 'breakout', 'platformer']
@@ -56,6 +60,20 @@ function validateOrThrow<T extends string>(
         throw new Error(`Invalid ${label}: ${String(value)}`)
     }
     return value as T
+}
+
+function validateScore(value: unknown, label: string): 0 | 1 | 2 {
+    if (value === 0 || value === 1 || value === 2) return value
+    throw new Error(`Invalid ${label} score: ${String(value)} (expected 0, 1, or 2)`)
+}
+
+function todayStamp(): string {
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return (
+        `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
+        `-${pad(d.getHours())}${pad(d.getMinutes())}`
+    )
 }
 
 function csvCell(value: unknown): string {
@@ -346,6 +364,26 @@ export const harnessRoutes = new Elysia({ prefix: '/harness' })
         }
         return { ok: true }
     })
+    .post('/runs/:id/runtime-error', ({ params, body, set }) => {
+        const run = getRun(params.id)
+        if (!run) {
+            set.status = 404
+            return { error: 'not found' }
+        }
+        const payload = body as { message?: unknown }
+        const raw = payload.message
+        const message =
+            typeof raw === 'string' ? raw : raw === undefined ? '' : String(raw)
+        const trimmed = message.length > 500 ? message.slice(0, 500) : message
+        const duringIteration = getCurrentIteration(params.id) !== undefined
+        handleEvent(params.id, {
+            t: Date.now(),
+            type: 'runtime_error',
+            message: trimmed,
+            duringIteration,
+        })
+        return { ok: true, counted: !duringIteration }
+    })
     .post('/runs/:id/grade', ({ params, body, set }) => {
         const run = getRun(params.id)
         if (!run) {
@@ -357,6 +395,8 @@ export const harnessRoutes = new Elysia({ prefix: '/harness' })
             win?: number
             lose?: number
             noCrash?: number
+            ui?: number
+            camera?: number
             failureMode?: string
             notes?: string
         }
@@ -369,10 +409,12 @@ export const harnessRoutes = new Elysia({ prefix: '/harness' })
             submitRubric(
                 params.id,
                 {
-                    movement: payload.movement ? 1 : 0,
-                    win: payload.win ? 1 : 0,
-                    lose: payload.lose ? 1 : 0,
-                    noCrash: payload.noCrash ? 1 : 0,
+                    movement: validateScore(payload.movement, 'movement'),
+                    win: validateScore(payload.win, 'win'),
+                    lose: validateScore(payload.lose, 'lose'),
+                    noCrash: validateScore(payload.noCrash, 'noCrash'),
+                    ui: validateScore(payload.ui, 'ui'),
+                    camera: validateScore(payload.camera, 'camera'),
                     failureMode,
                     notes: String(payload.notes ?? ''),
                 },
@@ -384,7 +426,7 @@ export const harnessRoutes = new Elysia({ prefix: '/harness' })
             return { error: e instanceof Error ? e.message : String(e) }
         }
     })
-    .get('/export.csv', () => {
+    .get('/export/runs', ({ set }) => {
         const runs = listRuns()
         const cols: Array<keyof (typeof runs)[number]> = [
             'id',
@@ -401,26 +443,25 @@ export const harnessRoutes = new Elysia({ prefix: '/harness' })
             'total_cached_tokens',
             'total_iterations',
             'total_tool_calls',
+            'runtime_errors',
             'rubric_movement',
             'rubric_win',
             'rubric_lose',
             'rubric_no_crash',
             'rubric_failure_mode',
+            'rubric_ui',
+            'rubric_camera',
             'rubric_notes',
             'graded_at',
         ]
         const csv = [cols.join(',')]
-        for (const r of runs) {
-            csv.push(cols.map((c) => csvCell(r[c])).join(','))
-        }
-        return new Response(csv.join('\n'), {
-            headers: {
-                'Content-Type': 'text/csv',
-                'Content-Disposition': 'attachment; filename="runs.csv"',
-            },
-        })
+        for (const r of runs) csv.push(cols.map((c) => csvCell(r[c])).join(','))
+        set.headers['content-type'] = 'text/csv; charset=utf-8'
+        set.headers['content-disposition'] =
+            `attachment; filename="harness-runs-${todayStamp()}.csv"`
+        return csv.join('\n')
     })
-    .get('/export-iterations.csv', () => {
+    .get('/export/iterations', ({ set }) => {
         const runs = listRuns()
         const cols = [
             'run_id',
@@ -459,13 +500,31 @@ export const harnessRoutes = new Elysia({ prefix: '/harness' })
                 )
             }
         }
-        return new Response(csv.join('\n'), {
-            headers: {
-                'Content-Type': 'text/csv',
-                'Content-Disposition':
-                    'attachment; filename="iterations.csv"',
-            },
-        })
+        set.headers['content-type'] = 'text/csv; charset=utf-8'
+        set.headers['content-disposition'] =
+            `attachment; filename="harness-iterations-${todayStamp()}.csv"`
+        return csv.join('\n')
+    })
+    .get('/stats', () => {
+        const runs = listRuns()
+        let stopped = 0
+        let graded = 0
+        let running = 0
+        let iterationsTotal = 0
+        for (const r of runs) {
+            if (r.status === 'graded') graded += 1
+            else if (r.status === 'stopped') stopped += 1
+            else if (r.status === 'running' || r.status === 'idle')
+                running += 1
+            iterationsTotal += r.total_iterations ?? 0
+        }
+        return {
+            runs: runs.length,
+            graded,
+            stopped,
+            running,
+            iterations: iterationsTotal,
+        }
     })
     .get('/provider-status', async () => {
         let config

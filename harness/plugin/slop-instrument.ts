@@ -1,6 +1,7 @@
 import type { LanguageModelUsage, ProviderMetadata } from 'ai'
 
 import type { IterationKind } from '../types'
+import { maxIterationIndex } from './db'
 import { handleEvent } from './event-handler'
 
 const currentIteration = new Map<string, number>()
@@ -27,7 +28,12 @@ export function beginIteration(
     kind: IterationKind,
     prompt: string
 ): number {
-    const index = nextIterationIndex.get(runId) ?? 0
+    // Take the max of the in-memory counter and (DB max + 1) so we never
+    // collide with rows from a prior server lifetime. The DB query is cheap
+    // and only runs once per user-driven turn.
+    const inMemory = nextIterationIndex.get(runId) ?? 0
+    const dbNext = maxIterationIndex(runId) + 1
+    const index = Math.max(inMemory, dbNext)
     nextIterationIndex.set(runId, index + 1)
     currentIteration.set(runId, index)
     handleEvent(runId, {

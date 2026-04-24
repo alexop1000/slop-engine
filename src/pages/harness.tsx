@@ -18,6 +18,8 @@ type AwaitingInputKind = 'free_text' | 'clarification_cards' | 'plan_approval'
 
 type RunStatus = 'created' | 'running' | 'idle' | 'stopped' | 'graded'
 
+type RubricScore = 0 | 1 | 2
+
 interface RunRow {
     id: string
     game: GameId
@@ -31,10 +33,13 @@ interface RunRow {
     total_output_tokens: number | null
     total_iterations: number | null
     total_tool_calls: number | null
-    rubric_movement: number | null
-    rubric_win: number | null
-    rubric_lose: number | null
-    rubric_no_crash: number | null
+    runtime_errors: number | null
+    rubric_movement: RubricScore | null
+    rubric_win: RubricScore | null
+    rubric_lose: RubricScore | null
+    rubric_no_crash: RubricScore | null
+    rubric_ui: RubricScore | null
+    rubric_camera: RubricScore | null
 }
 
 type RunEvent =
@@ -45,6 +50,7 @@ type RunEvent =
     | { t: number; type: 'text_chunk'; iteration: number; text: string }
     | { t: number; type: 'awaiting_input'; iteration: number; kind: AwaitingInputKind; payload?: unknown }
     | { t: number; type: 'iteration_ended'; index: number }
+    | { t: number; type: 'runtime_error'; message: string; duringIteration: boolean }
     | { t: number; type: 'run_stopped'; reason: 'user' | 'error'; error?: string }
 
 const GAMES: GameId[] = ['dodger', 'breakout', 'platformer']
@@ -345,29 +351,58 @@ const LiveRunView: Component<{
     const totals = () => {
         let inputTokens = 0
         let outputTokens = 0
+        let cachedTokens = 0
         let toolCalls = 0
         let iterations = 0
-        let startedAt: number | null = null
-        let endedAt: number | null = null
+        let runtimeErrors = 0
+        const iterStarts = new Map<number, number>()
+        const iterEnds = new Map<number, number>()
+        const iterLastActivity = new Map<number, number>()
+        const bumpActivity = (idx: number, t: number) => {
+            const prev = iterLastActivity.get(idx) ?? 0
+            if (t > prev) iterLastActivity.set(idx, t)
+        }
         for (const e of events()) {
-            if (e.type === 'run_started') startedAt = e.t
-            if (e.type === 'run_stopped') endedAt = e.t
-            if (e.type === 'iteration_started') iterations = e.index + 1
+            if (e.type === 'iteration_started') {
+                iterations = e.index + 1
+                iterStarts.set(e.index, e.t)
+                bumpActivity(e.index, e.t)
+            }
+            if (e.type === 'iteration_ended') {
+                iterEnds.set(e.index, e.t)
+                bumpActivity(e.index, e.t)
+            }
             if (e.type === 'llm_call') {
                 inputTokens += e.inputTokens
                 outputTokens += e.outputTokens
+                cachedTokens += e.cachedTokens
+                bumpActivity(e.iteration, e.t)
             }
-            if (e.type === 'tool_call') toolCalls += 1
+            if (e.type === 'tool_call') {
+                toolCalls += 1
+                bumpActivity(e.iteration, e.t)
+            }
+            if (e.type === 'runtime_error' && !e.duringIteration) {
+                runtimeErrors += 1
+            }
+        }
+        // Iteration end = explicit iteration_ended if present, else the
+        // latest activity timestamp inside that iteration. This avoids
+        // counting user think-time after clarification/plan_approval turns,
+        // which finish with tool-calls and never emit iteration_ended.
+        let activeMs = 0
+        for (const [idx, start] of iterStarts) {
+            const end = iterEnds.get(idx) ?? iterLastActivity.get(idx) ?? start
+            activeMs += Math.max(0, end - start)
         }
         return {
             inputTokens,
             outputTokens,
+            cachedTokens,
             toolCalls,
             iterations,
-            elapsedMs:
-                startedAt === null
-                    ? 0
-                    : (endedAt ?? Date.now()) - startedAt,
+            runtimeErrors,
+            elapsedMs: activeMs,
         }
     }
 
@@ -449,9 +484,20 @@ const LiveRunView: Component<{
                 <div class="flex gap-4 text-xs text-gray-300">
                     <span>iter {totals().iterations}</span>
                     <span>in {totals().inputTokens}</span>
+                    <span>cached {totals().cachedTokens}</span>
                     <span>out {totals().outputTokens}</span>
                     <span>tools {totals().toolCalls}</span>
-                    <span>{fmtMs(totals().elapsedMs)}</span>
+                    <span
+                        class={
+                            totals().runtimeErrors > 0 ? 'text-red-400' : ''
+                        }
+                        title="Runtime errors fired while no LLM iteration was active"
+                    >
+                        errors {totals().runtimeErrors}
+                    </span>
+                    <span title="Active LLM time — sum of per-iteration durations">
+                        {fmtMs(totals().elapsedMs)}
+                    </span>
                 </div>
                 <button
                     onClick={props.onClose}
@@ -563,6 +609,8 @@ const EventLine: Component<{ event: RunEvent }> = (props) => {
                 return 'text-yellow-300'
             case 'iteration_ended':
                 return 'text-green-600'
+            case 'runtime_error':
+                return 'text-red-400'
             case 'run_stopped':
                 return props.event.reason === 'error'
                     ? 'text-red-400'
@@ -576,8 +624,10 @@ const EventLine: Component<{ event: RunEvent }> = (props) => {
                 return `${e.game} / ${e.scenario} started`
             case 'iteration_started':
                 return `iter ${e.index} (${e.kind}): ${e.prompt.slice(0, 80)}`
-            case 'llm_call':
-                return `llm_call in=${e.inputTokens} out=${e.outputTokens} ${e.durationMs}ms finish=${e.finishReason ?? '?'}`
+            case 'llm_call': {
+                const cached = e.cachedTokens > 0 ? ` cached=${e.cachedTokens}` : ''
+                return `llm_call in=${e.inputTokens}${cached} out=${e.outputTokens} ${e.durationMs}ms finish=${e.finishReason ?? '?'}`
+            }
             case 'tool_call':
                 return `tool ${e.toolName} ${e.inputPreview.slice(0, 120)}${e.error ? ` ERROR: ${e.error}` : ''}`
             case 'text_chunk':
@@ -586,6 +636,12 @@ const EventLine: Component<{ event: RunEvent }> = (props) => {
                 return `awaiting_input (${e.kind})`
             case 'iteration_ended':
                 return `iter ${e.index} ended`
+            case 'runtime_error': {
+                const tag = e.duringIteration
+                    ? '[during iter, not counted]'
+                    : '[counted]'
+                return `runtime_error ${tag} ${e.message.slice(0, 200)}`
+            }
             case 'run_stopped':
                 return `stopped (${e.reason})${e.error ? ` — ${e.error}` : ''}`
         }
@@ -599,17 +655,74 @@ const EventLine: Component<{ event: RunEvent }> = (props) => {
 
 type FailureMode = 'none' | 'planning' | 'tool' | 'scope'
 
+const SCORE_OPTIONS: Array<{
+    value: RubricScore
+    label: string
+    activeClass: string
+}> = [
+    {
+        value: 0,
+        label: 'no',
+        activeClass: 'bg-red-700 border-red-500 text-white',
+    },
+    {
+        value: 1,
+        label: 'partially',
+        activeClass: 'bg-yellow-600 border-yellow-400 text-white',
+    },
+    {
+        value: 2,
+        label: 'yes',
+        activeClass: 'bg-green-700 border-green-500 text-white',
+    },
+]
+
+const ScoreGroup: Component<{
+    label: string
+    value: () => RubricScore
+    onChange: (v: RubricScore) => void
+}> = (p) => (
+    <div class="space-y-1">
+        <div class="text-sm text-gray-200">{p.label}</div>
+        <div class="flex gap-1">
+            <For each={SCORE_OPTIONS}>
+                {(opt) => (
+                    <button
+                        class={`px-3 py-1 text-xs rounded border ${
+                            p.value() === opt.value
+                                ? opt.activeClass
+                                : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'
+                        }`}
+                        onClick={() => p.onChange(opt.value)}
+                    >
+                        {opt.label}
+                    </button>
+                )}
+            </For>
+        </div>
+    </div>
+)
+
 const RubricForm: Component<{
     run: RunRow
     onSubmitted: () => void
 }> = (props) => {
-    const [movement, setMovement] = createSignal(
-        props.run.rubric_movement === 1
+    const initial = (v: RubricScore | null): RubricScore => v ?? 0
+    const [movement, setMovement] = createSignal<RubricScore>(
+        initial(props.run.rubric_movement)
     )
-    const [win, setWin] = createSignal(props.run.rubric_win === 1)
-    const [lose, setLose] = createSignal(props.run.rubric_lose === 1)
-    const [noCrash, setNoCrash] = createSignal(
-        props.run.rubric_no_crash === 1
+    const [win, setWin] = createSignal<RubricScore>(initial(props.run.rubric_win))
+    const [lose, setLose] = createSignal<RubricScore>(
+        initial(props.run.rubric_lose)
+    )
+    const [noCrash, setNoCrash] = createSignal<RubricScore>(
+        initial(props.run.rubric_no_crash)
+    )
+    const [ui, setUi] = createSignal<RubricScore>(
+        initial(props.run.rubric_ui)
+    )
+    const [camera, setCamera] = createSignal<RubricScore>(
+        initial(props.run.rubric_camera)
     )
     const [failureMode, setFailureMode] = createSignal<FailureMode>('none')
     const [notes, setNotes] = createSignal('')
@@ -623,10 +736,12 @@ const RubricForm: Component<{
             await api(`/runs/${props.run.id}/grade`, {
                 method: 'POST',
                 body: {
-                    movement: movement() ? 1 : 0,
-                    win: win() ? 1 : 0,
-                    lose: lose() ? 1 : 0,
-                    noCrash: noCrash() ? 1 : 0,
+                    movement: movement(),
+                    win: win(),
+                    lose: lose(),
+                    noCrash: noCrash(),
+                    ui: ui(),
+                    camera: camera(),
                     failureMode: failureMode(),
                     notes: notes(),
                 },
@@ -639,43 +754,38 @@ const RubricForm: Component<{
         }
     }
 
-    const Check: Component<{
-        label: string
-        checked: () => boolean
-        onChange: (v: boolean) => void
-    }> = (p) => (
-        <label class="flex items-center gap-2 cursor-pointer">
-            <input
-                type="checkbox"
-                checked={p.checked()}
-                onChange={(e) => p.onChange(e.currentTarget.checked)}
-            />
-            <span class="text-sm">{p.label}</span>
-        </label>
-    )
-
     return (
         <div class="bg-gray-900 border-l-2 border-blue-600 p-4 space-y-3">
-            <div class="grid grid-cols-2 gap-3">
-                <Check
+            <div class="grid grid-cols-2 gap-4">
+                <ScoreGroup
                     label="Movement / core mechanic works"
-                    checked={movement}
+                    value={movement}
                     onChange={setMovement}
                 />
-                <Check
+                <ScoreGroup
                     label="Win condition exists & triggers"
-                    checked={win}
+                    value={win}
                     onChange={setWin}
                 />
-                <Check
+                <ScoreGroup
                     label="Lose condition exists & triggers"
-                    checked={lose}
+                    value={lose}
                     onChange={setLose}
                 />
-                <Check
+                <ScoreGroup
                     label="No crashes, game is playable"
-                    checked={noCrash}
+                    value={noCrash}
                     onChange={setNoCrash}
+                />
+                <ScoreGroup
+                    label="UI exists and is visible"
+                    value={ui}
+                    onChange={setUi}
+                />
+                <ScoreGroup
+                    label="Camera faces the scene"
+                    value={camera}
+                    onChange={setCamera}
                 />
             </div>
             <div class="flex items-center gap-2 text-sm">
@@ -736,6 +846,33 @@ const RubricForm: Component<{
     )
 }
 
+type StatusFilter = 'all' | 'running' | 'stopped' | 'graded' | 'ungraded'
+
+async function downloadCsv(
+    path: string,
+    fallbackFilename: string
+): Promise<void> {
+    const res = await fetch(`/api/harness${path}`)
+    if (!res.ok) {
+        const text = await res.text()
+        throw new Error(
+            `${res.status} ${res.statusText}: ${text.slice(0, 200)}`
+        )
+    }
+    const disposition = res.headers.get('content-disposition') ?? ''
+    const match = disposition.match(/filename="?([^";]+)"?/i)
+    const filename = match?.[1] ?? fallbackFilename
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
 const HistoryView: Component<{
     onOpen: (runId: string) => void
 }> = (props) => {
@@ -743,26 +880,155 @@ const HistoryView: Component<{
         api<{ runs: RunRow[] }>('/runs')
     )
     const [expanded, setExpanded] = createSignal<string | null>(null)
+    const [statusFilter, setStatusFilter] = createSignal<StatusFilter>('all')
+    const [exportingRuns, setExportingRuns] = createSignal(false)
+    const [exportingIters, setExportingIters] = createSignal(false)
+    const [exportError, setExportError] = createSignal<string | null>(null)
+
     onMount(() => {
-        const timer = setInterval(() => refetch(), 3000)
+        const timer = setInterval(() => {
+            if (expanded() === null) refetch()
+        }, 15000)
         onCleanup(() => clearInterval(timer))
     })
+
+    const stats = () => {
+        const rs = data()?.runs ?? []
+        let running = 0
+        let stopped = 0
+        let graded = 0
+        let ungraded = 0
+        for (const r of rs) {
+            if (r.status === 'running' || r.status === 'idle') running += 1
+            else if (r.status === 'stopped') {
+                stopped += 1
+                if (r.rubric_movement === null) ungraded += 1
+            } else if (r.status === 'graded') graded += 1
+        }
+        return { total: rs.length, running, stopped, graded, ungraded }
+    }
+
+    const filtered = (): RunRow[] => {
+        const rs = data()?.runs ?? []
+        const f = statusFilter()
+        if (f === 'all') return rs
+        if (f === 'ungraded') {
+            return rs.filter(
+                (r) => r.status === 'stopped' && r.rubric_movement === null
+            )
+        }
+        if (f === 'running') {
+            return rs.filter(
+                (r) => r.status === 'running' || r.status === 'idle'
+            )
+        }
+        return rs.filter((r) => r.status === f)
+    }
+
+    const handleExport = async (
+        path: string,
+        fallback: string,
+        setter: (b: boolean) => void
+    ): Promise<void> => {
+        setExportError(null)
+        setter(true)
+        try {
+            await downloadCsv(path, fallback)
+        } catch (e) {
+            setExportError(e instanceof Error ? e.message : String(e))
+        } finally {
+            setter(false)
+        }
+    }
+
+    const FilterBtn: Component<{
+        value: StatusFilter
+        label: string
+        count: number
+    }> = (p) => (
+        <button
+            class={`px-2 py-0.5 text-xs rounded border ${
+                statusFilter() === p.value
+                    ? 'bg-blue-600 border-blue-500 text-white'
+                    : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+            }`}
+            onClick={() => setStatusFilter(p.value)}
+        >
+            {p.label}
+            <span class="ml-1 opacity-70">{p.count}</span>
+        </button>
+    )
+
     return (
         <div class="flex-1 overflow-auto p-4">
-            <div class="flex gap-2 mb-3">
-                <a
-                    href="/api/harness/export.csv"
-                    class="text-xs px-2 py-1 border border-gray-700 rounded hover:bg-gray-800"
+            <div class="flex flex-wrap gap-2 items-center mb-3">
+                <FilterBtn value="all" label="all" count={stats().total} />
+                <FilterBtn
+                    value="running"
+                    label="running"
+                    count={stats().running}
+                />
+                <FilterBtn
+                    value="stopped"
+                    label="stopped"
+                    count={stats().stopped}
+                />
+                <FilterBtn
+                    value="ungraded"
+                    label="needs grading"
+                    count={stats().ungraded}
+                />
+                <FilterBtn
+                    value="graded"
+                    label="graded"
+                    count={stats().graded}
+                />
+                <div class="flex-1" />
+                <button
+                    class="text-xs px-2 py-1 border border-gray-700 rounded hover:bg-gray-800 disabled:opacity-50"
+                    onClick={() =>
+                        handleExport(
+                            '/export/runs',
+                            'harness-runs.csv',
+                            setExportingRuns
+                        )
+                    }
+                    disabled={exportingRuns() || stats().total === 0}
+                    title="Download per-run summary CSV"
                 >
-                    Export runs CSV
-                </a>
-                <a
-                    href="/api/harness/export-iterations.csv"
-                    class="text-xs px-2 py-1 border border-gray-700 rounded hover:bg-gray-800"
+                    {exportingRuns()
+                        ? 'Exporting…'
+                        : `Export runs CSV (${stats().total})`}
+                </button>
+                <button
+                    class="text-xs px-2 py-1 border border-gray-700 rounded hover:bg-gray-800 disabled:opacity-50"
+                    onClick={() =>
+                        handleExport(
+                            '/export/iterations',
+                            'harness-iterations.csv',
+                            setExportingIters
+                        )
+                    }
+                    disabled={exportingIters() || stats().total === 0}
+                    title="Download per-iteration breakdown CSV"
                 >
-                    Export iterations CSV
-                </a>
+                    {exportingIters()
+                        ? 'Exporting…'
+                        : 'Export iterations CSV'}
+                </button>
+                <button
+                    class="text-xs px-2 py-1 border border-gray-700 rounded hover:bg-gray-800"
+                    onClick={() => refetch()}
+                    title="Refresh list"
+                >
+                    ↻
+                </button>
             </div>
+            <Show when={exportError()}>
+                <div class="mb-3 text-xs text-red-400 bg-red-950/40 border border-red-900 rounded p-2">
+                    Export failed: {exportError()}
+                </div>
+            </Show>
             <table class="w-full text-sm">
                 <thead class="text-xs uppercase text-gray-500 border-b border-gray-800">
                     <tr>
@@ -775,22 +1041,40 @@ const HistoryView: Component<{
                         <th class="text-right">iter</th>
                         <th class="text-right">tokens</th>
                         <th class="text-right">tools</th>
-                        <th class="text-right">duration</th>
+                        <th class="text-right" title="Runtime errors after LLM finished">err</th>
+                        <th class="text-right" title="Active LLM time (sum of iteration durations)">duration</th>
                         <th class="text-left">rubric</th>
                         <th />
                     </tr>
                 </thead>
                 <tbody>
                     <Show when={data()}>
-                        <For each={data()!.runs}>
+                        <For each={filtered()}>
                             {(r) => {
                                 const totalTokens =
                                     (r.total_input_tokens ?? 0) +
                                     (r.total_output_tokens ?? 0)
-                                const rubric =
+                                const scoreDot = (s: RubricScore | null) => {
+                                    if (s === null) return '·'
+                                    if (s === 0) return 'n'
+                                    if (s === 1) return 'p'
+                                    return 'y'
+                                }
+                                const scoreColor = (s: RubricScore | null) => {
+                                    if (s === null) return 'text-gray-600'
+                                    if (s === 0) return 'text-red-400'
+                                    if (s === 1) return 'text-yellow-300'
+                                    return 'text-green-400'
+                                }
+                                const rubricScores: Array<RubricScore | null> =
                                     r.rubric_movement === null
-                                        ? '—'
-                                        : `${r.rubric_movement}${r.rubric_win}${r.rubric_lose}${r.rubric_no_crash}`
+                                        ? [null, null, null, null]
+                                        : [
+                                              r.rubric_movement,
+                                              r.rubric_win,
+                                              r.rubric_lose,
+                                              r.rubric_no_crash,
+                                          ]
                                 const isExpanded = () => expanded() === r.id
                                 const canGrade = () =>
                                     r.status === 'stopped' ||
@@ -834,11 +1118,30 @@ const HistoryView: Component<{
                                             <td class="text-right">
                                                 {r.total_tool_calls ?? '—'}
                                             </td>
+                                            <td
+                                                class={`text-right ${
+                                                    (r.runtime_errors ?? 0) > 0
+                                                        ? 'text-red-400'
+                                                        : ''
+                                                }`}
+                                            >
+                                                {r.runtime_errors ?? '—'}
+                                            </td>
                                             <td class="text-right">
                                                 {fmtMs(r.total_duration_ms)}
                                             </td>
                                             <td class="font-mono text-xs">
-                                                {rubric}
+                                                <For each={rubricScores}>
+                                                    {(s) => (
+                                                        <span
+                                                            class={scoreColor(
+                                                                s
+                                                            )}
+                                                        >
+                                                            {scoreDot(s)}
+                                                        </span>
+                                                    )}
+                                                </For>
                                             </td>
                                             <td>
                                                 <div class="flex gap-1">
@@ -884,7 +1187,7 @@ const HistoryView: Component<{
                                         </tr>
                                         <Show when={isExpanded()}>
                                             <tr>
-                                                <td colspan={12}>
+                                                <td colspan={13}>
                                                     <RubricForm
                                                         run={r}
                                                         onSubmitted={() => {

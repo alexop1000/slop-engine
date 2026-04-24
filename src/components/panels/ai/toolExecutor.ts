@@ -239,7 +239,7 @@ const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tga']
 const PREFAB_EXT = '.prefab.json'
 const MAX_AGENT_STEPS = 20
 const MAX_AUTONOMOUS_TEST_STEPS = 100
-const MAX_AUTONOMOUS_TEST_SECONDS = 30
+const MAX_AUTONOMOUS_TEST_SECONDS = 60
 const MAX_SUBAGENT_STEP_MS = 120_000
 const MAX_SUBAGENT_RETRIES = 2
 
@@ -303,6 +303,83 @@ function findNodeInSnapshot(
         }
     }
     return undefined
+}
+
+// Build a compact digest of a snapshot for inclusion in a
+// run_autonomous_test result. Full snapshots run 20–30KB each and
+// the tool captures up to 6 per call — most of that is noise for a
+// test that reasons about node identity, positions, and counts.
+// Every node is preserved with name/type/transform/enabled/children
+// so the LLM can inspect the full scene shape; heavier fields
+// (colours, visibility, physics/collision flags, material metadata,
+// size, scripts) are stripped. Asserted nodes keep their full
+// record since the agent is explicitly reasoning about them.
+const SNAPSHOT_COMPACT_KEEP = new Set([
+    'name',
+    'type',
+    'enabled',
+    'position',
+    'rotation',
+    'scale',
+    'intensity',
+    'direction',
+    'visible',
+])
+
+function compactSnapshotNode(
+    node: Record<string, unknown>,
+    assertedNodeNames: Set<string>
+): Record<string, unknown> {
+    const isAsserted =
+        typeof node.name === 'string' && assertedNodeNames.has(node.name)
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(node)) {
+        if (k === 'children') continue
+        if (isAsserted || SNAPSHOT_COMPACT_KEEP.has(k)) {
+            out[k] = v
+        }
+    }
+    const kids = node.children
+    if (Array.isArray(kids) && kids.length > 0) {
+        const compactedKids: Record<string, unknown>[] = []
+        for (const c of kids) {
+            if (isRecord(c)) {
+                compactedKids.push(
+                    compactSnapshotNode(c, assertedNodeNames)
+                )
+            }
+        }
+        if (compactedKids.length > 0) out.children = compactedKids
+    }
+    return out
+}
+
+function digestAutonomousSnapshot(
+    snap: AutonomousSnapshot | null | undefined,
+    assertedNodeNames: Set<string>
+): unknown {
+    if (!snap) return null
+    let nodeCount = 0
+    const walk = (list: unknown[]): void => {
+        for (const n of list) {
+            if (!isRecord(n)) continue
+            nodeCount += 1
+            const kids = n.children
+            if (Array.isArray(kids)) walk(kids)
+        }
+    }
+    walk(snap.nodes)
+    const compactNodes: Record<string, unknown>[] = []
+    for (const n of snap.nodes) {
+        if (isRecord(n)) {
+            compactNodes.push(compactSnapshotNode(n, assertedNodeNames))
+        }
+    }
+    return {
+        simulation: snap.simulation,
+        nodeCount,
+        nodes: compactNodes,
+    }
 }
 
 function resolvePathValue(base: unknown, path?: string): unknown {
@@ -426,6 +503,102 @@ function looksGarbled(text: string): boolean {
     return CJK_HEAVY_RE.test(text)
 }
 
+// Tools whose output reflects global/scene-wide state that is fully
+// superseded by a later call. Older results in the subagent's own
+// message history can be replaced with a stub to keep input-token
+// growth bounded across long tool-using loops.
+const STALE_ON_RECALL = new Set([
+    'get_scene',
+    'get_console_logs',
+    'list_scripts',
+    'list_assets',
+    'list_image_assets',
+    'run_autonomous_test',
+])
+
+const MAX_ORCH_RESULT_CHARS = 200
+
+function truncateForOrchestrator(result: string): string {
+    if (result.length <= MAX_ORCH_RESULT_CHARS) return result
+    return `${result.slice(0, MAX_ORCH_RESULT_CHARS)}… (+${
+        result.length - MAX_ORCH_RESULT_CHARS
+    } chars)`
+}
+
+// Summarise a tool result for the orchestrator-facing actions log.
+// The full result still goes into the subagent's own messages; this
+// only shapes what the orchestrator sees in the spawn_agent return
+// value, so big JSON blobs don't get baked into the chat history.
+function summarizeResultForOrchestrator(
+    toolName: string,
+    result: string
+): string {
+    const byteLen = result.length
+    switch (toolName) {
+        case 'get_scene': {
+            try {
+                const parsed = JSON.parse(result) as {
+                    simulation?: string
+                    nodes?: unknown[]
+                }
+                const count = Array.isArray(parsed.nodes)
+                    ? parsed.nodes.length
+                    : 0
+                return `scene snapshot (${count} root nodes, simulation=${
+                    parsed.simulation ?? '?'
+                })`
+            } catch {
+                return `scene snapshot (${byteLen} chars)`
+            }
+        }
+        case 'run_autonomous_test': {
+            try {
+                const parsed = JSON.parse(result) as {
+                    summary?: {
+                        steps?: number
+                        elapsedSeconds?: number
+                        assertions?: {
+                            passed: number
+                            failed: number
+                            total: number
+                        }
+                    }
+                }
+                const s = parsed.summary
+                if (s?.assertions) {
+                    return `autonomous test: ${s.assertions.passed}/${s.assertions.total} assertions passed (${s.assertions.failed} failed, ${s.steps ?? '?'} steps, ${s.elapsedSeconds ?? '?'}s)`
+                }
+                return `autonomous test run (${byteLen} chars)`
+            } catch {
+                return `autonomous test run (${byteLen} chars)`
+            }
+        }
+        case 'get_console_logs': {
+            const lineCount = result.split('\n').length
+            return `console logs (${byteLen} chars, ${lineCount} lines)`
+        }
+        case 'read_script':
+            return `script contents (${byteLen} chars)`
+        case 'list_scripts':
+        case 'list_assets':
+        case 'list_image_assets': {
+            try {
+                const parsed = JSON.parse(result) as unknown
+                if (Array.isArray(parsed)) {
+                    return `${toolName}: ${parsed.length} entries`
+                }
+            } catch {
+                // fall through
+            }
+            return `${toolName} (${byteLen} chars)`
+        }
+        case 'lookup_scripting_api':
+            return `scripting API doc (${byteLen} chars)`
+        default:
+            return truncateForOrchestrator(result)
+    }
+}
+
 type SubagentUserContent =
     | string
     | Array<
@@ -456,6 +629,40 @@ type SubagentMessage =
               output: { type: 'text'; value: string }
           }>
       }
+
+// Walk the subagent's message history and replace older tool-result
+// payloads for STALE_ON_RECALL tools with a stub, keeping only the
+// most recent occurrence's full output. Preserves the tool-call ↔
+// tool-result pairing (and all message indices) so providers don't
+// reject the conversation shape.
+function elideStaleToolResults(messages: SubagentMessage[]): void {
+    const latest = new Map<string, { mi: number; pi: number }>()
+    for (let mi = 0; mi < messages.length; mi++) {
+        const m = messages[mi]
+        if (m.role !== 'tool') continue
+        for (let pi = 0; pi < m.content.length; pi++) {
+            const tr = m.content[pi]
+            if (STALE_ON_RECALL.has(tr.toolName)) {
+                latest.set(tr.toolName, { mi, pi })
+            }
+        }
+    }
+    for (let mi = 0; mi < messages.length; mi++) {
+        const m = messages[mi]
+        if (m.role !== 'tool') continue
+        for (let pi = 0; pi < m.content.length; pi++) {
+            const tr = m.content[pi]
+            if (!STALE_ON_RECALL.has(tr.toolName)) continue
+            const l = latest.get(tr.toolName)
+            if (!l || (l.mi === mi && l.pi === pi)) continue
+            if (tr.output.value.startsWith('[elided')) continue
+            tr.output = {
+                type: 'text',
+                value: `[elided — superseded by later ${tr.toolName} result]`,
+            }
+        }
+    }
+}
 
 export function createToolExecutor(
     ctx: ToolExecutorContext
@@ -1589,6 +1796,12 @@ export function createToolExecutor(
             ).length
             const failedAssertions = assertionResults.length - passedAssertions
 
+            const assertedNodeNames = new Set(
+                assertions
+                    .map((a) => a.node)
+                    .filter((n): n is string => typeof n === 'string')
+            )
+
             return JSON.stringify(
                 {
                     summary: {
@@ -1602,9 +1815,21 @@ export function createToolExecutor(
                         },
                     },
                     snapshots: {
-                        before: beforeSnapshot,
-                        during: duringSnapshots,
-                        after: afterSnapshot,
+                        before: digestAutonomousSnapshot(
+                            beforeSnapshot,
+                            assertedNodeNames
+                        ),
+                        during: duringSnapshots.map((d) => ({
+                            atSeconds: d.atSeconds,
+                            snapshot: digestAutonomousSnapshot(
+                                d.snapshot,
+                                assertedNodeNames
+                            ),
+                        })),
+                        after: digestAutonomousSnapshot(
+                            afterSnapshot,
+                            assertedNodeNames
+                        ),
                     },
                     assertions: assertionResults,
                 },
@@ -1893,20 +2118,28 @@ export function createToolExecutor(
                 for (let i = 0; i < data.toolCalls.length; i++) {
                     const tc = data.toolCalls[i]
                     let result: string
+                    let failed = false
                     try {
                         result = await executeTool(tc.toolName, tc.args)
-                        actionsLog.push(`${tc.toolName}: ${result}`)
                         displayToolCalls[i].status = 'done'
                         displayToolCalls[i].result = result
                     } catch (err) {
                         result = `Error: ${
                             err instanceof Error ? err.message : String(err)
                         }`
-                        actionsLog.push(`${tc.toolName} FAILED: ${result}`)
+                        failed = true
                         displayToolCalls[i].status = 'error'
                         displayToolCalls[i].error =
                             err instanceof Error ? err.message : String(err)
                     }
+                    const summary = failed
+                        ? result
+                        : summarizeResultForOrchestrator(tc.toolName, result)
+                    actionsLog.push(
+                        failed
+                            ? `${tc.toolName} FAILED: ${summary}`
+                            : `${tc.toolName}: ${summary}`
+                    )
                     emitState('running')
                     toolResults.push({
                         type: 'tool-result',
@@ -1916,6 +2149,7 @@ export function createToolExecutor(
                     })
                 }
                 messages.push({ role: 'tool', content: toolResults })
+                elideStaleToolResults(messages)
 
                 if (data.finishReason === 'stop') break
             }

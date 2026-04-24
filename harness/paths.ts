@@ -1,17 +1,65 @@
-import { resolve, join } from 'node:path'
-import { mkdirSync, existsSync, readFileSync } from 'node:fs'
+import { resolve, join, relative, sep } from 'node:path'
+import {
+    mkdirSync,
+    existsSync,
+    readFileSync,
+    writeFileSync,
+} from 'node:fs'
+import { homedir } from 'node:os'
 
 import type { GameId, HarnessConfig, ScenarioId, GamePromptSpec } from './types'
 
 export const HARNESS_ROOT = resolve(import.meta.dir)
 export const DB_PATH = join(HARNESS_ROOT, 'harness.db')
 export const CONFIG_PATH = join(HARNESS_ROOT, 'config.json')
-export const RUNS_DIR = join(HARNESS_ROOT, 'runs')
 export const PROMPTS_DIR = join(HARNESS_ROOT, 'prompts')
 export const TEMPLATES_DIR = join(HARNESS_ROOT, 'templates')
+export const ENGINE_REPO_ROOT = resolve(HARNESS_ROOT, '..')
+
+let cachedRunsRoot: string | null = null
+
+/**
+ * Resolve the per-run artifacts root. Reads `runsDir` from config.json (with
+ * env-var expansion) if set; falls back to `<homedir>/.slop-harness/runs`.
+ * Refuses any path inside the slop-engine repo — opencode would otherwise
+ * discover the repo as its workspace and edit engine source.
+ */
+export function runsRoot(): string {
+    if (cachedRunsRoot) return cachedRunsRoot
+    let resolved: string
+    try {
+        const raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'))
+        const expanded = expandEnvVars(raw) as { runsDir?: unknown }
+        const configured =
+            typeof expanded.runsDir === 'string' && expanded.runsDir.trim()
+                ? expanded.runsDir.trim()
+                : null
+        resolved = configured
+            ? resolve(configured)
+            : join(homedir(), '.slop-harness', 'runs')
+    } catch {
+        resolved = join(homedir(), '.slop-harness', 'runs')
+    }
+    assertOutsideRepo(resolved)
+    cachedRunsRoot = resolved
+    return cachedRunsRoot
+}
+
+/** Fail loud if the configured runs dir sits inside the engine repo. */
+function assertOutsideRepo(candidate: string): void {
+    const rel = relative(ENGINE_REPO_ROOT, candidate)
+    const inside = rel !== '' && !rel.startsWith(`..${sep}`) && !rel.startsWith('..')
+    if (inside || rel === '') {
+        throw new Error(
+            `harness runsDir must not be inside the slop-engine repo (${candidate}). ` +
+                `Opencode walks up looking for git roots and would treat the whole engine as its workspace. ` +
+                `Set runsDir in harness/config.json to a path outside the repo, e.g. \${USERPROFILE}/.slop-harness/runs.`
+        )
+    }
+}
 
 export function runDir(runId: string): string {
-    return join(RUNS_DIR, runId)
+    return join(runsRoot(), runId)
 }
 
 export function eventsPath(runId: string): string {
@@ -30,8 +78,32 @@ export function templateDir(scenario: ScenarioId): string {
     return join(TEMPLATES_DIR, scenario)
 }
 
+/**
+ * Prepare a run's directory tree. Creates `runs/<id>/artifact/` and drops a
+ * zero-commit `.git` folder inside the artifact dir. That `.git` is a hard
+ * project-root boundary for opencode: even if the user's `runsDir` ever ends
+ * up nested inside some other git repo, opencode's upward walk will stop
+ * right here instead of escaping into parent checkouts.
+ */
 export function ensureRunDir(runId: string): void {
-    mkdirSync(artifactDir(runId), { recursive: true })
+    const art = artifactDir(runId)
+    mkdirSync(art, { recursive: true })
+    const gitDir = join(art, '.git')
+    if (!existsSync(gitDir)) {
+        mkdirSync(gitDir, { recursive: true })
+        // Minimal .git contents so any git-root detector recognizes it. We
+        // don't want a working git repo, just the marker directory.
+        writeFileSync(
+            join(gitDir, 'HEAD'),
+            'ref: refs/heads/harness-isolation-boundary\n'
+        )
+        writeFileSync(
+            join(gitDir, 'config'),
+            '[core]\n\trepositoryformatversion = 0\n'
+        )
+        mkdirSync(join(gitDir, 'objects'), { recursive: true })
+        mkdirSync(join(gitDir, 'refs'), { recursive: true })
+    }
 }
 
 function expandEnvVars(value: unknown): unknown {
