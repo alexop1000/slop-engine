@@ -251,13 +251,13 @@ export function chatApiPlugin(): Plugin {
                     const model = getModel(
                         modelSettings,
                         'orchestrator',
-                        env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat',
+                        env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.4-mini',
                         env
                     )
                     const orchestratorModelId =
                         modelSettings?.models?.orchestrator?.trim() ||
                         env.AZURE_OPENAI_DEPLOYMENT ||
-                        'gpt-5.2-chat'
+                        'gpt-5.4-mini'
                     const chatRequestSummary = summarizeChatRequest(messages)
 
                     const result = streamText({
@@ -627,13 +627,13 @@ export function chatApiPlugin(): Plugin {
                     const model = getModel(
                         modelSettings,
                         agentType,
-                        env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.2-chat',
+                        env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5.4-mini',
                         env
                     )
                     const subagentModelId =
                         modelSettings?.models?.[agentType]?.trim() ||
                         env.AZURE_OPENAI_DEPLOYMENT ||
-                        'gpt-5.2-chat'
+                        'gpt-5.4-mini'
                     const subagentRequestSummary = summarizeSubagentRequest(
                         messages
                     )

@@ -12,6 +12,7 @@ import { ToolCallIndicator } from './ToolCallIndicator'
 import { PlanningCards } from './PlanningCards'
 import { PlanSummary } from './PlanSummary'
 import { resolvePlanning } from './planningStore'
+import { queueHarnessIteration } from '../../../harnessClient'
 import { Spinner } from '../../ui/Spinner'
 
 /** Reactive wrapper for ask_clarification tool — tracks input/state changes */
@@ -53,10 +54,9 @@ function PlanningClarification(props: { part: ToolUIPart }) {
                         if (custom) {
                             parts.push(`User wrote: "${custom}"`)
                         }
-                        resolvePlanning(
-                            props.part.toolCallId,
-                            parts.join('. ')
-                        )
+                        const answer = parts.join('. ')
+                        queueHarnessIteration('clarification', answer)
+                        resolvePlanning(props.part.toolCallId, answer)
                     }}
                 />
             )}
@@ -86,18 +86,26 @@ function PlanningPlanPresentation(props: { part: ToolUIPart }) {
                     title={pi().title}
                     steps={pi().steps ?? []}
                     disabled={isDone()}
-                    onApprove={() =>
+                    onApprove={() => {
+                        queueHarnessIteration(
+                            'plan_approval',
+                            'approved'
+                        )
                         resolvePlanning(
                             props.part.toolCallId,
                             'Plan approved by user. Proceed with execution.'
                         )
-                    }
-                    onReject={() =>
+                    }}
+                    onReject={() => {
+                        queueHarnessIteration(
+                            'plan_approval',
+                            'rejected'
+                        )
                         resolvePlanning(
                             props.part.toolCallId,
                             'User wants to change the plan. Ask what they would like to adjust.'
                         )
-                    }
+                    }}
                 />
             )}
         </Show>

@@ -15,6 +15,10 @@ export const routes: RouteDefinition[] = [
     preload: AboutData,
   },
   {
+    path: '/harness',
+    component: lazy(() => import('./pages/harness')),
+  },
+  {
     path: '**',
     component: lazy(() => import('./errors/404')),
   },

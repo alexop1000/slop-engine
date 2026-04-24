@@ -26,3 +26,10 @@ gitignore
 # System Files
 .DS_Store
 Thumbs.db
+
+# Harness (thesis evaluation tool — generated data)
+harness/harness.db
+harness/harness.db-journal
+harness/harness.db-wal
+harness/harness.db-shm
+harness/runs/

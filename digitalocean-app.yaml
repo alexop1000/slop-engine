@@ -20,7 +20,7 @@ services:
             value: REPLACE_ME
           - key: AZURE_OPENAI_DEPLOYMENT
             scope: RUN_AND_BUILD_TIME
-            value: gpt-5.2-chat
+            value: gpt-5.4-mini
           - key: OPENROUTER_API_KEY
             scope: RUN_AND_BUILD_TIME
             type: SECRET

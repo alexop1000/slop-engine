@@ -1,0 +1,12 @@
+{
+    "provider": "azure",
+    "azure": {
+        "resourceName": "${AZURE_OPENAI_RESOURCE_NAME}",
+        "apiKey": "${AZURE_OPENAI_API_KEY}",
+        "deployment": "${AZURE_OPENAI_DEPLOYMENT}"
+    },
+    "lmstudio": {
+        "baseUrl": "http://localhost:1234/v1",
+        "modelId": "gemma-4-26b-a4b"
+    }
+}

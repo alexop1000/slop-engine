@@ -26,7 +26,7 @@ export interface ModelSettings {
 }
 
 const DEFAULT_MODELS: Record<AgentType, string> = {
-    orchestrator: 'gpt-5.3-chat',
+    orchestrator: 'gpt-5.4-mini',
     scene: 'gpt-5.4-mini',
     script: 'gpt-5.4-mini',
     ui: 'gpt-5.4-mini',
@@ -39,8 +39,8 @@ const DEFAULT_OPENROUTER_MODELS: Record<AgentType, string> = {
     scene: 'google/gemini-3.1-pro-preview',
     script: 'anthropic/claude-4.6-sonnet',
     ui: 'google/gemini-3.1-pro-preview',
-    asset: 'openai/gpt-5.3-chat',
-    test: 'openai/gpt-5.3-chat',
+    asset: 'openai/gpt-5.4-mini',
+    test: 'openai/gpt-5.4-mini',
 }
 
 const DEFAULT_GOOGLE_MODELS: Record<AgentType, string> = {

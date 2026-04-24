@@ -1,4 +1,5 @@
 import { Mesh } from 'babylonjs'
+import { onMount } from 'solid-js'
 import {
     ResetConfirmModal,
     EditorTopbar,
@@ -9,12 +10,33 @@ import { getAssetStore, clearAllBlobs, clearSceneJsonFromDB, saveSceneJsonToDB }
 import { clearAllSessions } from '../chatHistoryStore'
 import { useEditorState } from '../hooks/useEditorState'
 import { useEditorEngine } from '../hooks/useEditorEngine'
+import {
+    setHarnessRunId,
+    setPendingInitialPrompt,
+} from '../harnessClient'
 
 export default function Home() {
     const state = useEditorState()
     const engine = useEditorEngine(state)
 
     let bundleInputRef: HTMLInputElement | undefined
+
+    onMount(async () => {
+        const params = new URLSearchParams(globalThis.location.search)
+        const harnessRunId = params.get('harnessRunId')
+        if (!harnessRunId) return
+        setHarnessRunId(harnessRunId)
+        try {
+            const res = await fetch(
+                `/api/harness/runs/${encodeURIComponent(harnessRunId)}/meta`
+            )
+            if (!res.ok) throw new Error(`fetch meta ${res.status}`)
+            const meta = (await res.json()) as { initialPrompt: string }
+            setPendingInitialPrompt(meta.initialPrompt)
+        } catch (e) {
+            console.error('[harness] init failed', e)
+        }
+    })
 
     const handleReset = async () => {
         await clearAllBlobs()

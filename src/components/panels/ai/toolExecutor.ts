@@ -1,5 +1,6 @@
 import type { Accessor, Setter } from 'solid-js'
 import { createPlanningPromise } from './planningStore'
+import { getHarnessRunId } from '../../../harnessClient'
 import type { Scene, Node } from 'babylonjs'
 import {
     type ModelSettings,
@@ -1754,6 +1755,7 @@ export function createToolExecutor(
 
                     let res: Response
                     try {
+                        const harnessRunId = getHarnessRunId()
                         res = await fetch('/api/subagent', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -1763,6 +1765,7 @@ export function createToolExecutor(
                                 modelSettings: normalizeModelSettings(
                                     ctx.modelSettings()
                                 ),
+                                ...(harnessRunId && { harnessRunId }),
                             }),
                             signal: controller.signal,
                         })

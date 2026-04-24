@@ -102,7 +102,7 @@ export function ModelSettingsPanel() {
             ? 'e.g. anthropic/claude-4.6-sonnet'
             : modelSettings().provider === 'google'
               ? 'e.g. gemini-3.1-pro-preview'
-              : 'e.g. gpt-5.3-chat (deployment name)'
+              : 'e.g. gpt-5.4-mini (deployment name)'
 
     const selectedProvider = () => modelSettings().provider
 

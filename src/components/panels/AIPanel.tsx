@@ -24,6 +24,12 @@ import {
     titleFromMessages,
 } from '../../chatHistoryStore'
 import { fixErrorRequest, clearFixErrorRequest } from '../../aiRequestStore'
+import {
+    buildHarnessBodyFields,
+    consumePendingInitialPrompt,
+    pendingInitialPrompt,
+    queueHarnessIteration,
+} from '../../harnessClient'
 import { isToolPart, getToolNameFromPart, type ToolUIPart } from './ai/types'
 import {
     getSubagent,
@@ -101,9 +107,13 @@ export default function AIPanel(
                               ).getClassName?.() ?? 'Node',
                       }
                     : undefined
+                const harnessFields = buildHarnessBodyFields({
+                    consumePending: true,
+                })
                 return {
                     modelSettings: normalizeModelSettings(modelSettings()),
                     ...(selectedNode && { selectedNode }),
+                    ...harnessFields,
                 }
             },
         }),
@@ -356,6 +366,16 @@ export default function AIPanel(
     })
 
     createEffect(() => {
+        const prompt = pendingInitialPrompt()
+        if (!prompt) return
+        if (input().trim().length > 0) return
+        consumePendingInitialPrompt()
+        setInput(prompt)
+        setView('chat')
+        inputRef?.focus()
+    })
+
+    createEffect(() => {
         for (const msg of chat.messages) {
             if (msg.role !== 'assistant') continue
             for (const part of msg.parts) {
@@ -500,6 +520,12 @@ export default function AIPanel(
             checkpoints.set(msgIndex, checkpoint)
             setCheckpointTick((t) => t + 1)
         }
+
+        const isFirstUserMessage = chat.messages.length === 0
+        queueHarnessIteration(
+            isFirstUserMessage ? 'initial' : 'nudge',
+            content || '[files only]'
+        )
 
         setInput('')
         setPendingFiles(undefined)
