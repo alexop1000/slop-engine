@@ -29,6 +29,8 @@ export function ModelSettingsPanel() {
     const [showAzureKey, setShowAzureKey] = createSignal(false)
     const [showOpenRouterKey, setShowOpenRouterKey] = createSignal(false)
     const [showGoogleKey, setShowGoogleKey] = createSignal(false)
+    const [showNanoBananaKey, setShowNanoBananaKey] = createSignal(false)
+    const [showTripoKey, setShowTripoKey] = createSignal(false)
 
     const setProvider = (provider: AIProvider) => {
         setModelSettings((prev) => {
@@ -85,7 +87,9 @@ export function ModelSettingsPanel() {
             | 'azureApiKey'
             | 'azureResourceName'
             | 'openrouterApiKey'
-            | 'googleApiKey',
+            | 'googleApiKey'
+            | 'nanobananaApiKey'
+            | 'tripoApiKey',
         value: string
     ) => {
         setModelSettings((prev) => ({
@@ -247,6 +251,69 @@ export function ModelSettingsPanel() {
                         </div>
                     </div>
                 </Show>
+
+                <div class="rounded-md border border-gray-200 dark:border-gray-700 p-3 flex flex-col gap-3">
+                    <div class="text-sm font-medium text-gray-800 dark:text-gray-100">
+                        Asset generation credentials
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                        Used by the image and 3D generation tools. These are
+                        stored locally in your browser, with environment
+                        variable fallback on the server.
+                    </p>
+                    <div class="flex items-end gap-2">
+                        <Input
+                            label="NanoBanana API Key"
+                            type={showNanoBananaKey() ? 'text' : 'password'}
+                            value={credentials().nanobananaApiKey ?? ''}
+                            autocomplete="off"
+                            onInput={(e) =>
+                                setCredential(
+                                    'nanobananaApiKey',
+                                    e.currentTarget.value
+                                )
+                            }
+                            placeholder="Enter nanobananaapi.ai API key"
+                            class="text-sm"
+                        />
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                                setShowNanoBananaKey((prev) => !prev)
+                            }
+                            class="mb-0.5"
+                        >
+                            {showNanoBananaKey() ? 'Hide' : 'Show'}
+                        </Button>
+                    </div>
+                    <div class="flex items-end gap-2">
+                        <Input
+                            label="Tripo 3D API Key"
+                            type={showTripoKey() ? 'text' : 'password'}
+                            value={credentials().tripoApiKey ?? ''}
+                            autocomplete="off"
+                            onInput={(e) =>
+                                setCredential(
+                                    'tripoApiKey',
+                                    e.currentTarget.value
+                                )
+                            }
+                            placeholder="Enter Tripo 3D API key"
+                            class="text-sm"
+                        />
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowTripoKey((prev) => !prev)}
+                            class="mb-0.5"
+                        >
+                            {showTripoKey() ? 'Hide' : 'Show'}
+                        </Button>
+                    </div>
+                </div>
             </Collapsible>
 
             <For each={AGENT_TYPES}>

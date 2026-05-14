@@ -122,6 +122,8 @@ type ModelSettings = {
         azureResourceName?: string
         openrouterApiKey?: string
         googleApiKey?: string
+        nanobananaApiKey?: string
+        tripoApiKey?: string
     }
 }
 
@@ -309,16 +311,18 @@ const api = new Elysia({ prefix: '/api' })
         return result.toUIMessageStreamResponse()
     })
     .post('/generate-tripo-mesh', async ({ body, set }) => {
-        const apiKey = process.env.TRIPO_API_KEY
-        if (!apiKey) {
-            set.status = 500
-            return { error: 'TRIPO_API_KEY not configured' }
-        }
-
-        const { prompt, path, negativePrompt } = body as {
+        const { prompt, path, negativePrompt, credentials } = body as {
             prompt: string
             path: string
             negativePrompt?: string
+            credentials?: {
+                tripoApiKey?: string
+            }
+        }
+        const apiKey = credentials?.tripoApiKey?.trim() || process.env.TRIPO_API_KEY
+        if (!apiKey) {
+            set.status = 500
+            return { error: 'TRIPO_API_KEY not configured' }
         }
         if (!prompt || !path) {
             set.status = 400
@@ -350,16 +354,19 @@ const api = new Elysia({ prefix: '/api' })
         return { path, base64, contentType }
     })
     .post('/generate-image', async ({ body, set }) => {
-        const apiKey = process.env.NANOBANANA_API_KEY
-        if (!apiKey) {
-            set.status = 500
-            return { error: 'NANOBANANA_API_KEY not configured' }
-        }
-
-        const { prompt, path, imageSize } = body as {
+        const { prompt, path, imageSize, credentials } = body as {
             prompt: string
             path: string
             imageSize?: string
+            credentials?: {
+                nanobananaApiKey?: string
+            }
+        }
+        const apiKey =
+            credentials?.nanobananaApiKey?.trim() || process.env.NANOBANANA_API_KEY
+        if (!apiKey) {
+            set.status = 500
+            return { error: 'NANOBANANA_API_KEY not configured' }
         }
         if (!prompt || !path) {
             set.status = 400
@@ -492,9 +499,7 @@ const api = new Elysia({ prefix: '/api' })
         const result = await generateText({
             model,
             system,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             tools: tools as any,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             messages: messages as any,
             maxOutputTokens: 16384,
             timeout: 110_000,

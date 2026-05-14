@@ -16,6 +16,8 @@ export interface ModelCredentials {
     azureResourceName?: string
     openrouterApiKey?: string
     googleApiKey?: string
+    nanobananaApiKey?: string
+    tripoApiKey?: string
 }
 
 export interface ModelSettings {
